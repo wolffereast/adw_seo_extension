@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <head>
+    <title>ADW SEO tracking tracker</title>
+    <style>
+      body {
+        min-width: 357px;
+        overflow-x: hidden;
+      }
+			div.message{
+				border: 1px solid;
+				margin: 6px 0;
+				padding: 10px;
+			}
+			div.error {
+				background-color: #fef5f1;
+				color: #8c2e0b;
+				border-color: #ed541d;
+			}
+			div.warning {
+				background-color: #fffce5;
+				color: #840;
+				border-color: #ed5;
+			}
+			div.status {
+				background-color: #f8fff0;
+				color: #234600;
+				border-color: #be7;
+			}
+    </style>
+
+    <!--
+      - JavaScript and HTML must be in separate files: see our Content Security
+      - Policy documentation[1] for details and explanation.
+      -
+      - [1]: http://developer.chrome.com/extensions/contentSecurityPolicy.html
+     -->
+    <script src="js/jquery.min.js" type='text/javascript'></script>
+    <script src="js/popup.js" type='text/javascript'></script>
+  </head>
+  <body>
+  	<h2>ADW SEO tracking tracker</h2>
+    <div class="form">
+    	<p>If there is http authentication on the page please enter it here</p>
+    	<div>
+      	<label for="username">Username</label>
+    		<input type="text" name="username" class="username" />
+    	</div>
+      <div>
+        <label for="password">Password</label>
+        <input type="text" name="password" class="password" />
+      </div>
+    	<button id="reload-button">Check for Tracking</button>
+    </div>
+    <div id="scripts-on-page"></div>
+    <div id="functions-using-gaq"></div>
+    <div id="items-calling-functions"></div>
+  </body>
+</html>
+
