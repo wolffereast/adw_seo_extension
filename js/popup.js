@@ -40,6 +40,13 @@ function check_for_inclusions(code_to_test){
 }
 
 /*
+ * Combs the dom_object for any element with an inline handler
+ */
+function find_inline_handlers(dom_object){
+	
+}
+
+/*
  * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
  * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
  */
