@@ -40,13 +40,6 @@ function check_for_inclusions(code_to_test){
 }
 
 /*
- * Combs the dom_object for any element with an inline handler
- */
-function find_inline_handlers(dom_object){
-	
-}
-
-/*
  * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
  * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
  */
@@ -70,6 +63,63 @@ function find_path(dom_object){
 	}
 
 	return selector;
+}
+
+/*
+ * Combs the dom_object for any element with an inline handler
+ */
+function find_inline_handlers(dom_object){
+	var component_array, function_regex, handler, parts, part, method_object, i, j, function_calls, methods, method_calls, function_callers;
+	component_array = [];
+	function_calls = [];
+	methods = [];
+	method_calls = [];
+	function_callers = [];
+	
+	function_regex =/^([a-zA-Z0-9\s_.-]+)\([^)]*\)$/;
+	method_regex = /^.*\.([^.]*)$/;
+	
+	$('[onclick]', dom_object).each(function(){
+		handler = $(this).attr('onclick');
+
+		parts = handler.split(';');
+		for (i=0, j=parts.length; i<j; i++){
+			if (parts[i].length){
+				//status_print(parts[i]);
+				part = parts[i].match(function_regex);
+				if (part != null){
+					status_print(part[1], 'error');
+					method_object = part[1].match(method_regex);
+					if (method_object != null){
+						status_print('method: '+method_object,'warning');
+						methods.push(method_object[1]);
+						method_calls.push(method_object[2]);
+					}//end if method object null
+					else if ($.inArray(part[1], function_calls) === -1){
+						status_print('function: '+part,'warning');
+						function_calls.push(part[1]);
+					}
+					function_callers.push(this);
+				}//end if part null
+			}//end if parts[i].length
+		}//end for
+	});//end jquery onclick selector
+	var methods, functions, callers;
+	for (i=0; i<method_calls.length; i++){
+		if (methods != '') methods += ', ';
+		methods += method_calls[i];
+	}
+	for (i=0; i<function_calls.length; i++){
+		if (functions != '') functions += ', ';
+		functions += function_calls[i];
+	}
+	for (i=0; i<function_callers.length; i++){
+		if (callers != '') callers += ', ';
+		callers += find_path(function_callers[i]);
+	}
+	status_print('methods: '+methods);
+	status_print('functions: '+functions);
+	status_print('caller selectors: '+callers);
 }
 
 function find_tracking_code(code_to_test, external, url){
@@ -108,13 +158,9 @@ function find_tracking_code(code_to_test, external, url){
 	}
 }
 
-function find_scripts(page_content, current_url){
+function find_scripts(temp_dom, current_url){
 	//status_print('beginning of the find scripts function');
-	var temp_dom, host, rude_host, host_regex;
-		
-	//return the text to its original dom properties
-	temp_dom = document.createElement('div');
-	temp_dom.innerHTML = page_content;
+	var host, rude_host, host_regex;
 	
 	//We will need the host we are currently using
 	host = current_url.match(/^([^.]*\.)?[^.]*\.[^\/]*\//i);
@@ -159,14 +205,10 @@ function find_scripts(page_content, current_url){
 	});
 }
 
-function find_event_bindings(page_content, current_url){
-	var temp_dom, temp_events, selector_array, event_array;
+function find_event_bindings(temp_dom, current_url){
+	var temp_events, selector_array, event_array;
 	selector_array = [];
 	event_array = [];
-	
-	//return the text to its original dom properties
-	temp_dom = document.createElement('div');
-	temp_dom.innerHTML = page_content;
 	
 	$('*', temp_dom).each(function(){
 		temp_events = $._data(this, "events");
@@ -181,18 +223,24 @@ function find_event_bindings(page_content, current_url){
 }
 
 function eval_current_page() {
+	var tab_url, xmlhttp, temp_dom;
 	chrome.tabs.getSelected(null, function(tab){
 		////status_print('url being checked: '+tab.url);
-		var tab_url, xmlhttp;
 		//dont have to worry about activex, this is a chrome browser extension
 		xmlhttp = new XMLHttpRequest();
 		
 		xmlhttp.onreadystatechange=function(){
 			if (xmlhttp.readyState==4){
 				if (xmlhttp.status==200){
+					//return the text to its original dom properties
+					temp_dom = document.createElement('div');
+					temp_dom.innerHTML = xmlhttp.responseText;
 					//trying a different way, test the whole dom to see if there are events attached to anything
-					find_event_bindings(xmlhttp.responseText, tab.url);
-					//find_scripts(xmlhttp.responseText, tab.url);
+					//find_event_bindings(temp_dom, tab.url);
+					//this pulls all the scripts on the page
+					//find_scripts(temp_dom, tab.url);
+					//grab all the inline handlers
+					find_inline_handlers(temp_dom);
 				}
 				else if (xmlhttp.status==404){
 					status_print('returning a 404 for the ajax request - what page do you think has tracking on it?','error');
