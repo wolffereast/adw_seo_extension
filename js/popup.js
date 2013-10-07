@@ -33,8 +33,36 @@ function check_for_inclusions(code_to_test){
 		//then find the end of the function, 
 		
 		//then repeat till the variable is empty...
+		
+		//then, realize you need a full brower-esque processor to deal with this type of parsing and move on to other methods
 		break;
 	}
+}
+
+/*
+ * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
+ * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
+ */
+function find_path(dom_object){
+	var selector, id, classNames;
+	
+	selector = $(dom_object).parents().map(function() { return this.tagName; }).get().reverse().join(" ");
+	
+	if (selector) { 
+		selector += " "+ $(dom_object)[0].nodeName;
+	}
+
+	id = $(dom_object).attr("id");
+	if (id) { 
+		selector += "#"+ id;
+	}
+
+	classNames = $(dom_object).attr("class");
+	if (classNames) {
+		selector += "." + $.trim(classNames).replace(/\s/gi, ".");
+	}
+
+	return selector;
 }
 
 function find_tracking_code(code_to_test, external, url){
@@ -75,10 +103,9 @@ function find_tracking_code(code_to_test, external, url){
 
 function find_scripts(page_content, current_url){
 	//status_print('beginning of the find scripts function');
-	var temp_dom, parser, host, rude_host, host_regex;
+	var temp_dom, host, rude_host, host_regex;
 		
 	//return the text to its original dom properties
-	parser = new DOMParser();
 	temp_dom = document.createElement('div');
 	temp_dom.innerHTML = page_content;
 	
@@ -125,6 +152,27 @@ function find_scripts(page_content, current_url){
 	});
 }
 
+function find_event_bindings(page_content, current_url){
+	var temp_dom, temp_events, selector_array, event_array;
+	selector_array = [];
+	event_array = [];
+	
+	//return the text to its original dom properties
+	temp_dom = document.createElement('div');
+	temp_dom.innerHTML = page_content;
+	
+	$('*', temp_dom).each(function(){
+		temp_events = $._data(this, "events");
+		if (temp_events != 'undefined'){
+			selector_array.push(find_path(this));
+			event_array.push(temp_events);
+		}
+	});
+	
+	status_print(selector_array);
+	status_print(event_array);
+}
+
 function eval_current_page() {
 	chrome.tabs.getSelected(null, function(tab){
 		////status_print('url being checked: '+tab.url);
@@ -135,7 +183,9 @@ function eval_current_page() {
 		xmlhttp.onreadystatechange=function(){
 			if (xmlhttp.readyState==4){
 				if (xmlhttp.status==200){
-					find_scripts(xmlhttp.responseText, tab.url);
+					//trying a different way, test the whole dom to see if there are events attached to anything
+					find_event_bindings(xmlhttp.responseText, tab.url);
+					//find_scripts(xmlhttp.responseText, tab.url);
 				}
 				else if (xmlhttp.status==404){
 					status_print('returning a 404 for the ajax request - what page do you think has tracking on it?','error');
