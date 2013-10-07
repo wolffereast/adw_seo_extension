@@ -43,21 +43,28 @@ function check_for_inclusions(code_to_test){
  * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
  * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
  */
-function find_path(dom_object){
+function find_path(item_to_find, dom_object, id_to_ignore){
 	var selector, id, classNames;
 	
-	selector = $(dom_object).parents().map(function() { return this.tagName; }).get().reverse().join(" ");
-	
-	if (selector) { 
-		selector += " "+ $(dom_object)[0].nodeName;
+	id_to_ignore = (typeof id_to_ignore != 'undefined') ? id_to_ignore : false;
+
+	id = $(item_to_find, dom_object).attr("id");
+	if (id && id_to_ignore !== false){
+		if (id == id_to_ignore) return '';
 	}
 
-	id = $(dom_object).attr("id");
+	if ($(item_to_find, dom_object).parent().length){
+		selector = find_path($(item_to_find, dom_object).parent(), dom_object, id_to_ignore);
+	}
+	else selector = '';
+	
+	selector += " "+ $(item_to_find, dom_object)[0].nodeName;
+
 	if (id) { 
 		selector += "#"+ id;
 	}
 
-	classNames = $(dom_object).attr("class");
+	classNames = $(item_to_find, dom_object).attr("class");
 	if (classNames) {
 		selector += "." + $.trim(classNames).replace(/\s/gi, ".");
 	}
@@ -88,15 +95,15 @@ function find_inline_handlers(dom_object){
 				//status_print(parts[i]);
 				part = parts[i].match(function_regex);
 				if (part != null){
-					status_print(part[1], 'error');
+					////status_print(part[1], 'error');
 					method_object = part[1].match(method_regex);
 					if (method_object != null){
-						status_print('method: '+method_object,'warning');
+						////status_print('method: '+method_object,'warning');
 						methods.push(method_object[1]);
 						method_calls.push(method_object[2]);
 					}//end if method object null
 					else if ($.inArray(part[1], function_calls) === -1){
-						status_print('function: '+part,'warning');
+						////status_print('function: '+part,'warning');
 						function_calls.push(part[1]);
 					}
 					function_callers.push(this);
@@ -104,7 +111,7 @@ function find_inline_handlers(dom_object){
 			}//end if parts[i].length
 		}//end for
 	});//end jquery onclick selector
-	var methods, functions, callers;
+	var methods = '', functions = '', callers = '';
 	for (i=0; i<method_calls.length; i++){
 		if (methods != '') methods += ', ';
 		methods += method_calls[i];
@@ -115,7 +122,7 @@ function find_inline_handlers(dom_object){
 	}
 	for (i=0; i<function_callers.length; i++){
 		if (callers != '') callers += ', ';
-		callers += find_path(function_callers[i]);
+		callers += find_path(function_callers[i], dom_object, 'temp-dom-wrapper');
 	}
 	status_print('methods: '+methods);
 	status_print('functions: '+functions);
@@ -124,7 +131,7 @@ function find_inline_handlers(dom_object){
 
 function find_tracking_code(code_to_test, external, url){
 	var xmlhttp;
-	external = (typeof external === 'undefined') ? false : external;
+	external = (typeof external == 'undefined') ? false : external;
 	
 	if (external){
 		//this is a script file, time for some AJAX!
@@ -213,7 +220,7 @@ function find_event_bindings(temp_dom, current_url){
 	$('*', temp_dom).each(function(){
 		temp_events = $._data(this, "events");
 		if (temp_events != 'undefined'){
-			selector_array.push(find_path(this));
+			selector_array.push(find_path(this, temp_dom, 'temp-dom-wrapper'));
 			event_array.push(temp_events);
 		}
 	});
@@ -234,6 +241,7 @@ function eval_current_page() {
 				if (xmlhttp.status==200){
 					//return the text to its original dom properties
 					temp_dom = document.createElement('div');
+					$(temp_dom).attr('id', 'temp-dom-wrapper');
 					temp_dom.innerHTML = xmlhttp.responseText;
 					//trying a different way, test the whole dom to see if there are events attached to anything
 					//find_event_bindings(temp_dom, tab.url);
