@@ -1,6 +1,5 @@
 //define some global variables... we will want all the locations here
-var tracking_functions = [];
-var tracking_locations = [];
+var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [], scripts_content = [];
 
 function status_print(content, message_type){
 	message_type = message_type || 'status';
@@ -76,12 +75,8 @@ function find_path(item_to_find, dom_object, id_to_ignore){
  * Combs the dom_object for any element with an inline handler
  */
 function find_inline_handlers(dom_object){
-	var component_array, function_regex, handler, parts, part, method_object, i, j, function_calls, methods, method_calls, function_callers;
+	var component_array, function_regex, handler, parts, part, method_object, i, j;
 	component_array = [];
-	function_calls = [];
-	methods = [];
-	method_calls = [];
-	function_callers = [];
 	
 	function_regex =/^([a-zA-Z0-9\s_.-]+)\([^)]*\)$/;
 	method_regex = /^.*\.([^.]*)$/;
@@ -111,6 +106,9 @@ function find_inline_handlers(dom_object){
 			}//end if parts[i].length
 		}//end for
 	});//end jquery onclick selector
+	/*
+	 * uncomment this to print out the functions and methods found
+	 *
 	var methods = '', functions = '', callers = '';
 	for (i=0; i<method_calls.length; i++){
 		if (methods != '') methods += ', ';
@@ -127,6 +125,8 @@ function find_inline_handlers(dom_object){
 	status_print('methods: '+methods);
 	status_print('functions: '+functions);
 	status_print('caller selectors: '+callers);
+	/*
+	 */
 }
 
 function find_tracking_code(code_to_test, external, url){
@@ -160,7 +160,7 @@ function find_tracking_code(code_to_test, external, url){
 		if (code_to_test.indexOf('_gaq') !== -1){
 			status_print('found _gaq within a script, looking in '+url+' for the stash');
 			//this has tracking, AWESOME SAUCE
-			check_for_inclusions(code_to_test);
+			scripts_content.push(code_to_test);
 		}
 	}
 }
@@ -246,7 +246,7 @@ function eval_current_page() {
 					//trying a different way, test the whole dom to see if there are events attached to anything
 					//find_event_bindings(temp_dom, tab.url);
 					//this pulls all the scripts on the page
-					//find_scripts(temp_dom, tab.url);
+					find_scripts(temp_dom, tab.url);
 					//grab all the inline handlers
 					find_inline_handlers(temp_dom);
 				}
