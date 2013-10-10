@@ -1,9 +1,11 @@
 //define some global variables... we will want all the locations here
-var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [], scripts_content = [];
+var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [];
 
 $.extend({
 	num_scripts : 0,
-	num_executed : 0
+	num_executed : 0,
+	scripts_content : [],
+	account_num : ''
 });
 
 function status_print(content, message_type){
@@ -21,10 +23,9 @@ function status_print(content, message_type){
 function check_for_inclusions(code_to_test){
 	var free_text = [], functions = [], temp_text, temp_function, function_regex;
 
-	status_print(code_to_test);
 	code_to_test = code_to_test.replace(/\/\/[^$]*$/i,'');
 	
-	status_print(code_to_test);
+	////status_print(code_to_test);
 	
 	//we are going to pull this thing apart... 
 	while (code_to_test.length > 0){
@@ -109,7 +110,7 @@ function find_inline_handlers(dom_object, f){
 	});//end jquery onclick selector
 	/*
 	 * uncomment this to print out the functions and methods found
-	 */
+	 * /
 	var methods = '', functions = '', callers = '';
 	for (i=0; i<method_calls.length; i++){
 		if (methods != '') methods += ', ';
@@ -132,7 +133,7 @@ function find_inline_handlers(dom_object, f){
 }
 
 function find_tracking_code(code_to_test, external, url, f){
-	var xmlhttp;
+	var xmlhttp, results;
 	external = (typeof external == 'undefined') ? false : external;
 	f = (typeof f == 'function') ? f : false;
 	
@@ -161,9 +162,16 @@ function find_tracking_code(code_to_test, external, url, f){
 	else{
 		//this is the script text.  pull on those regex boots, its stompy time!
 		if (code_to_test.indexOf('_gaq') !== -1){
-			status_print('found _gaq within a script, looking in '+url+' for the stash');
+			////status_print('found _gaq within a script, looking in '+url+' for the stash');
 			//this has tracking, AWESOME SAUCE
-			scripts_content.push(code_to_test);
+			//lets see if they are setting the account
+			results = code_to_test.match(/_gaq\.push\(\[(["'])_setAccount\1\s*,\s*(['"])(.*?)\2/i);
+			if ($(results).length){
+				status_print(results[3]);
+				$.account_num = results[3]
+			}
+			
+			$.scripts_content.push(code_to_test);
 		}
 		$.num_executed += 1;
 		////status_print('num executed: '+$.num_executed);
@@ -245,11 +253,13 @@ function eval_current_page() {
 					//this pulls all the scripts on the page
 					// Implemented a callback functionality on this, so call find inline handlers on return
 					find_scripts(temp_dom, tab.url, function(){
-						status_print('finished with find scripts');
+						////status_print('finished with find scripts');
 						//grab all the inline handlers
 						find_inline_handlers(temp_dom, function(){
-							status_print('finished with find inline handlers');
-							
+							////status_print('finished with find inline handlers');
+							$.each($.scripts_content, function(){
+								check_for_inclusions(this);
+							});
 						});
 					});
 				}
