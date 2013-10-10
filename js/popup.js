@@ -1,6 +1,11 @@
 //define some global variables... we will want all the locations here
 var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [], scripts_content = [];
 
+$.extend({
+	num_scripts : 0,
+	num_executed : 0
+});
+
 function status_print(content, message_type){
 	message_type = message_type || 'status';
 	var div = document.createElement("div");
@@ -14,21 +19,17 @@ function status_print(content, message_type){
  * Best way to do this?  Im not sure, maybe break the file into functions? - giving it a go
  */
 function check_for_inclusions(code_to_test){
-	var free_text, functions, temp_text, temp_function, function_regex;
-	//first, we need to remove the comments, two different formats, // on one line or /* ... */
+	var free_text = [], functions = [], temp_text, temp_function, function_regex;
+
 	status_print(code_to_test);
 	code_to_test = code_to_test.replace(/\/\/[^$]*$/i,'');
 	
 	status_print(code_to_test);
 	
-	free_text = functions = [];
-	function_regex = /^(?:(?!function)[\s\S]|function\s*\([^)]*\))+/mi;
 	//we are going to pull this thing apart... 
 	while (code_to_test.length > 0){
 		//first, get all the text till a function
 		status_print('the original text to check: '+code_to_test);
-		temp_text = code_to_test.match(function_regex);
-		status_print(temp_text);
 		//then find the end of the function, 
 		
 		//then repeat till the variable is empty...
@@ -74,7 +75,7 @@ function find_path(item_to_find, dom_object, id_to_ignore){
 /*
  * Combs the dom_object for any element with an inline handler
  */
-function find_inline_handlers(dom_object){
+function find_inline_handlers(dom_object, f){
 	var component_array, function_regex, handler, parts, part, method_object, i, j;
 	component_array = [];
 	
@@ -108,7 +109,7 @@ function find_inline_handlers(dom_object){
 	});//end jquery onclick selector
 	/*
 	 * uncomment this to print out the functions and methods found
-	 *
+	 */
 	var methods = '', functions = '', callers = '';
 	for (i=0; i<method_calls.length; i++){
 		if (methods != '') methods += ', ';
@@ -127,11 +128,13 @@ function find_inline_handlers(dom_object){
 	status_print('caller selectors: '+callers);
 	/*
 	 */
+	if (typeof f == 'function') f.call();
 }
 
-function find_tracking_code(code_to_test, external, url){
+function find_tracking_code(code_to_test, external, url, f){
 	var xmlhttp;
 	external = (typeof external == 'undefined') ? false : external;
+	f = (typeof f == 'function') ? f : false;
 	
 	if (external){
 		//this is a script file, time for some AJAX!
@@ -141,7 +144,7 @@ function find_tracking_code(code_to_test, external, url){
 		xmlhttp.onreadystatechange = function(){
 			if (xmlhttp.readyState==4){
 				if (xmlhttp.status==200){
-					find_tracking_code(xmlhttp.responseText, false, url);
+					find_tracking_code(xmlhttp.responseText, false, url, f);
 				}
 				else if (xmlhttp.status==404){
 					status_print('returning a 404 for the ajax request to '+code_to_test,'error');
@@ -162,12 +165,17 @@ function find_tracking_code(code_to_test, external, url){
 			//this has tracking, AWESOME SAUCE
 			scripts_content.push(code_to_test);
 		}
+		$.num_executed += 1;
+		////status_print('num executed: '+$.num_executed);
+		if ($.num_executed == $.num_scripts && typeof f == 'function') f.call();
 	}
 }
 
-function find_scripts(temp_dom, current_url){
+function find_scripts(temp_dom, current_url, f){
 	//status_print('beginning of the find scripts function');
 	var host, rude_host, host_regex;
+	
+	f = (typeof f == 'function') ? f : false;
 	
 	//We will need the host we are currently using
 	host = current_url.match(/^([^.]*\.)?[^.]*\.[^\/]*\//i);
@@ -188,45 +196,35 @@ function find_scripts(temp_dom, current_url){
 	
 	////status_print('there are '+$('script',temp_dom).length+' scripts on the whole page');
 	
+	$.num_scripts = $('script',temp_dom).length;
+
 	$('script',temp_dom).each(function(){
 		if (typeof($(this).attr('src')) === 'undefined'){
 			console.log($(this).text());
 			////status_print('internal script '+$(this).text()+' is onsite and parsable');
-			find_tracking_code($(this).text(), false, 'internal');
+			find_tracking_code($(this).text(), false, 'internal', f);
 		}
 		else{
 			var current_src;
 			current_src = $(this).attr('src');
 			if (current_src.match(host_regex)){
 				/////status_print('external script '+external_scripts[i]+' is onsite and parsable');
-				find_tracking_code(current_src, true, current_src);
+				find_tracking_code(current_src, true, current_src, f);
 			}
 			else if (!current_src.match(/^(http|\/\/)/i)){
 				//doesnt have the protocal or host, append them!
 				//first, remove the friggin starting./
 				current_src = current_src.replace(/^\.\//,'');
 				//now, this is the host and the path without host
-				find_tracking_code(current_url.replace(/\/[^\/]*$/,'/')+current_src, true, current_url.replace(/\/[^\/]*$/,'/')+current_src);
+				find_tracking_code(current_url.replace(/\/[^\/]*$/,'/')+current_src, true, current_url.replace(/\/[^\/]*$/,'/')+current_src, f);
+			}
+			else{
+				//this script is offsite, we are currently not parsing these...
+				//we still need to increment the counter though
+				$.num_executed += 1;
 			}
 		}
 	});
-}
-
-function find_event_bindings(temp_dom, current_url){
-	var temp_events, selector_array, event_array;
-	selector_array = [];
-	event_array = [];
-	
-	$('*', temp_dom).each(function(){
-		temp_events = $._data(this, "events");
-		if (temp_events != 'undefined'){
-			selector_array.push(find_path(this, temp_dom, 'temp-dom-wrapper'));
-			event_array.push(temp_events);
-		}
-	});
-	
-	status_print(selector_array);
-	status_print(event_array);
 }
 
 function eval_current_page() {
@@ -243,12 +241,17 @@ function eval_current_page() {
 					temp_dom = document.createElement('div');
 					$(temp_dom).attr('id', 'temp-dom-wrapper');
 					temp_dom.innerHTML = xmlhttp.responseText;
-					//trying a different way, test the whole dom to see if there are events attached to anything
-					//find_event_bindings(temp_dom, tab.url);
+					
 					//this pulls all the scripts on the page
-					find_scripts(temp_dom, tab.url);
-					//grab all the inline handlers
-					find_inline_handlers(temp_dom);
+					// Implemented a callback functionality on this, so call find inline handlers on return
+					find_scripts(temp_dom, tab.url, function(){
+						status_print('finished with find scripts');
+						//grab all the inline handlers
+						find_inline_handlers(temp_dom, function(){
+							status_print('finished with find inline handlers');
+							
+						});
+					});
 				}
 				else if (xmlhttp.status==404){
 					status_print('returning a 404 for the ajax request - what page do you think has tracking on it?','error');
