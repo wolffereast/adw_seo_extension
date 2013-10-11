@@ -1,3 +1,27 @@
+/*
+intro: ((?:(?!\/\/)[^'"])*)?
+match quotations: (["'])((?:(?:(?!\\*\2).)*|(?:\\\\)*|\\\2)*)(\2)
+match single line comments: (\/\/[^\n\r]*[\n\r])
+multi line comments: (\/\*(?:(?!\*\/).|[\n\r])*\*\/)
+
+I am text outside quotations "I am test text"
+and so am I
+"I am also test text \" that should not remove that inner quotation"
+//I fall inside a comment
+"also this text \\"
+
+' " hi! " '
+
+full regex:
+(?:(\/\*(?:(?!\*\/).|[\n\r])*\*\/)|(\/\/[^\n\r]*[\n\r])|(["'])((?:(?:(?!\\*\3).)*|(?:\\\\)*|\\\3|[\n\r])*)(\3))
+
+*/
+var multiline_comment_regex, singleline_comment_regex, quotation_regex, full_regex;
+multiline_comment_regex = /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/
+singleline_comment_regex = /(\/\/[^\n\r]*[\n\r])/
+quotation_regex = /(["'])((?:(?:(?!\\*\3).)*|(?:\\\\)*|\\\3|[\n\r])*)(\3)/
+full_regex = new RegExp('(?:' + multiline_comment_regex + '|' + singleline_comment_regex + '|' + quotation_regex + ')');
+
 //define some global variables... we will want all the locations here
 var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [];
 
