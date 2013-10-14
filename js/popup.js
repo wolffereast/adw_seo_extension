@@ -1,26 +1,3 @@
-/*
-intro: ((?:(?!\/\/)[^'"])*)?
-match quotations: (["'])((?:(?:(?!\\*\2).)*|(?:\\\\)*|\\\2)*)(\2)
-match single line comments: (\/\/[^\n\r]*[\n\r])
-multi line comments: (\/\*(?:(?!\*\/).|[\n\r])*\*\/)
-
-I am text outside quotations "I am test text"
-and so am I
-"I am also test text \" that should not remove that inner quotation"
-//I fall inside a comment
-"also this text \\"
-
-' " hi! " '
-
-full regex:
-(?:(\/\*(?:(?!\*\/).|[\n\r])*\*\/)|(\/\/[^\n\r]*[\n\r])|(["'])((?:(?:(?!\\*\3).)*|(?:\\\\)*|\\\3|[\n\r])*)(\3))
-
-*/
-var multiline_comment_regex, singleline_comment_regex, quotation_regex, full_regex;
-multiline_comment_regex = /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/
-singleline_comment_regex = /(\/\/[^\n\r]*[\n\r])/
-quotation_regex = /(["'])((?:(?:(?!\\*\3).)*|(?:\\\\)*|\\\3|[\n\r])*)(\3)/
-full_regex = new RegExp('(?:' + multiline_comment_regex + '|' + singleline_comment_regex + '|' + quotation_regex + ')');
 
 //define some global variables... we will want all the locations here
 var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [];
@@ -29,14 +6,24 @@ $.extend({
 	num_scripts : 0,
 	num_executed : 0,
 	scripts_content : [],
-	account_num : ''
+	account_num : '',
+	multiline_comment : /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/,
+	single_line_comment : /(\/\/[^\n\r]*[\n\r]+)/,
+	quotations : /((["'])(?:(?:(?!\\*\4).)*|(?:\\\\)*|\\\4|[\n\r])*\4)/,
+	regex_literal : /(=\s*\/(?:(?:(?!\\\/)[^\s])*|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^\]])\])*\/)/,
+//	html_comments : /(<!--(?:(?!-->).)*-->)/,
+	regex_of_doom : ''
 });
+$.regex_of_doom = new RegExp($.multiline_comment.source + '|' + $.single_line_comment.source + '|' + $.quotations.source + '|' + $.regex_literal.source, 'g');
+
 
 function status_print(content, message_type){
 	message_type = message_type || 'status';
+	var pre = document.createElement('pre');
 	var div = document.createElement("div");
 	div.setAttribute('class','message ' + message_type);
-	div.appendChild(document.createTextNode(content));
+	pre.appendChild(document.createTextNode(content));
+	div.appendChild(pre);
 	document.getElementsByTagName('h2')[0].parentNode.appendChild(div);
 }
 
@@ -45,23 +32,32 @@ function status_print(content, message_type){
  * Best way to do this?  Im not sure, maybe break the file into functions? - giving it a go
  */
 function check_for_inclusions(code_to_test){
-	var free_text = [], functions = [], temp_text, temp_function, function_regex;
+	var changed_text;
 
-	code_to_test = code_to_test.replace(/\/\/[^$]*$/i,'');
+	status_print('the original text to check: '+code_to_test);
 	
-	////status_print(code_to_test);
+	changed_text = code_to_test.replace($.regex_of_doom, function(match, $1, $2, $3, $4, $5, $6, offset, original){
+		if (typeof $3 != 'undefined') return $3;
+		if (typeof $5 != 'undefined') return $5;
+		return '';
+	});
 	
-	//we are going to pull this thing apart... 
-	while (code_to_test.length > 0){
-		//first, get all the text till a function
-		status_print('the original text to check: '+code_to_test);
-		//then find the end of the function, 
-		
-		//then repeat till the variable is empty...
-		
-		//then, realize you need a full brower-esque processor to deal with this type of parsing and move on to other methods
-		break;
-	}
+	status_print ("changed regex = \n" + changed_text);
+}
+
+/*
+ * function to remove comments from js
+ * utilizes the regex_of_doom regex literal
+ */
+function remove_comments(code_to_test){
+
+	status_print('the original text to check: '+code_to_test);
+	
+	return code_to_test.replace($.regex_of_doom, function(match, $1, $2, $3, $4, $5, $6, offset, original){
+		if (typeof $3 != 'undefined') return $3;
+		if (typeof $5 != 'undefined') return $5;
+		return '';
+	});
 }
 
 /*
@@ -194,9 +190,10 @@ function find_tracking_code(code_to_test, external, url, f){
 				status_print(results[3]);
 				$.account_num = results[3]
 			}
-			
-			$.scripts_content.push(code_to_test);
 		}
+		// we need to be able to check the code even if it doesnt contain _gaq
+		$.scripts_content.push(remove_comments(code_to_test));
+		
 		$.num_executed += 1;
 		////status_print('num executed: '+$.num_executed);
 		if ($.num_executed == $.num_scripts && typeof f == 'function') f.call();
@@ -232,7 +229,6 @@ function find_scripts(temp_dom, current_url, f){
 
 	$('script',temp_dom).each(function(){
 		if (typeof($(this).attr('src')) === 'undefined'){
-			console.log($(this).text());
 			////status_print('internal script '+$(this).text()+' is onsite and parsable');
 			find_tracking_code($(this).text(), false, 'internal', f);
 		}
