@@ -7,15 +7,34 @@ $.extend({
 	num_executed : 0,
 	scripts_content : [],
 	account_num : '',
+	quotations : /((["'])(?:(?:(?!\\*\2).)+|(?:\\\\)+|\\\2|[\n\r])*(\2))/,
 	multiline_comment : /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/,
 	single_line_comment : /(\/\/[^\n\r]*[\n\r]+)/,
-	quotations : /((["'])(?:(?:(?!\\*\4).)*|(?:\\\\)*|\\\4|[\n\r])*\4)/,
-	regex_literal : /(=\s*\/(?:(?:(?!\\\/)[^\s])*|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^\]])\])*\/)/,
-//	html_comments : /(<!--(?:(?!-->).)*-->)/,
+	regex_literal : /(?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)/,
+	html_comments : /(<!--(?:(?!-->).)*-->)/,
 	regex_of_doom : ''
 });
-$.regex_of_doom = new RegExp($.multiline_comment.source + '|' + $.single_line_comment.source + '|' + $.quotations.source + '|' + $.regex_literal.source, 'g');
-
+$.regex_of_doom = new RegExp(
+	'(?:' + $.quotations.source + '|' + 
+	$.multiline_comment.source + '|' + 
+	$.single_line_comment.source + '|' + 
+	'(=\\s*' + $.regex_literal.source + ')|(' + 
+	$.regex_literal.source + '[gimy]?\\.(?:exec|test|match|search|replace|split)\\(' + ')|(' + 
+	'\\.(?:exec|test|match|search|replace|split)\\(' + $.regex_literal.source + ')|' +
+	$.html_comments.source + ')' , 'g'
+);
+/*
+(?:
+	((["'])(?:(?:(?!\\*\2).)+|(?:\\\\)+|\\\2|[\n\r])*(\2))|
+	(\/\*(?:(?!\*\/).|[\n\r])*\*\/)|
+	(\/\/[^\n\r]*[\n\r]+)|
+	(=\s*(?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/))|
+	((?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)[gimy]?\.(?:exec|test|match|search|replace|split)\()|
+	(\.(?:exec|test|match|search|replace|split)\((?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/))|
+	(<!--(?:(?!-->).)*-->)
+)
+/g 
+*/
 
 function status_print(content, message_type){
 	message_type = message_type || 'status';
@@ -28,36 +47,24 @@ function status_print(content, message_type){
 }
 
 /*
- * function to look for wrapper functions around a string
- * Best way to do this?  Im not sure, maybe break the file into functions? - giving it a go
+ * function to look for inclusion of a piece of regex within a function
  */
-function check_for_inclusions(code_to_test){
-	var changed_text;
-
-	status_print('the original text to check: '+code_to_test);
-	
-	changed_text = code_to_test.replace($.regex_of_doom, function(match, $1, $2, $3, $4, $5, $6, offset, original){
-		if (typeof $3 != 'undefined') return $3;
-		if (typeof $5 != 'undefined') return $5;
+function check_for_inclusions(code_to_test, target_regex){
+	// function\s*([^\s(]*)\(([^)]+)\)\s*[\n\r]?\s*{((_gaq)|({[\s\S]*$)|[^{}])*
+	var function_regex, has_target = false;
+	/////status_print("the original text to check:\n"+code_to_test+"\nLooking For: "+target_regex.source);
+	//function_regex = new RegExp('function\s*([^\s(]*)\(([^)]+)\)\s*[\n\r]?\s*{(('+target_regex.source+')|({[\s\S]*$)|[^{}])*','g');
+	/////status_print(function_regex)
+	/*
+	status_print(code_to_test.replace(function_regex, function(match, $1, $2, $3, offset, original){
+		status_print('$1 = ' + $1)
+		status_print('$2 = ' + $2)
+		status_print('$3 = ' + $3)
+		status_print('$4 = ' + $4)
+		status_print('$5 = ' + $5)
 		return '';
-	});
-	
-	status_print ("changed regex = \n" + changed_text);
-}
-
-/*
- * function to remove comments from js
- * utilizes the regex_of_doom regex literal
- */
-function remove_comments(code_to_test){
-
-	status_print('the original text to check: '+code_to_test);
-	
-	return code_to_test.replace($.regex_of_doom, function(match, $1, $2, $3, $4, $5, $6, offset, original){
-		if (typeof $3 != 'undefined') return $3;
-		if (typeof $5 != 'undefined') return $5;
-		return '';
-	});
+	}));
+	*/
 }
 
 /*
@@ -152,7 +159,7 @@ function find_inline_handlers(dom_object, f){
 	if (typeof f == 'function') f.call();
 }
 
-function find_tracking_code(code_to_test, external, url, f){
+function find_tracking_code(code_to_test, external, f){
 	var xmlhttp, results;
 	external = (typeof external == 'undefined') ? false : external;
 	f = (typeof f == 'function') ? f : false;
@@ -165,7 +172,7 @@ function find_tracking_code(code_to_test, external, url, f){
 		xmlhttp.onreadystatechange = function(){
 			if (xmlhttp.readyState==4){
 				if (xmlhttp.status==200){
-					find_tracking_code(xmlhttp.responseText, false, url, f);
+					find_tracking_code(xmlhttp.responseText, false, f);
 				}
 				else if (xmlhttp.status==404){
 					status_print('returning a 404 for the ajax request to '+code_to_test,'error');
@@ -191,8 +198,22 @@ function find_tracking_code(code_to_test, external, url, f){
 				$.account_num = results[3]
 			}
 		}
+		//status_print($.regex_of_doom);
+		status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
+		//strip the comments from the js.  we dont need no stinkin comments!
+		// /*
+		code_to_test = code_to_test.replace($.regex_of_doom, function(match, $1, $2, $3, $4, $5, $6, $7, $8, $9, offset, original){
+			if (typeof $1 != 'undefined') return $1;
+			if (typeof $6 != 'undefined') return $6;
+			if (typeof $7 != 'undefined') return $7;
+			if (typeof $8 != 'undefined') return $8;
+			return '';
+		});
+		status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);		
+		// */
+		
 		// we need to be able to check the code even if it doesnt contain _gaq
-		$.scripts_content.push(remove_comments(code_to_test));
+		$.scripts_content.push(code_to_test);
 		
 		$.num_executed += 1;
 		////status_print('num executed: '+$.num_executed);
@@ -202,7 +223,7 @@ function find_tracking_code(code_to_test, external, url, f){
 
 function find_scripts(temp_dom, current_url, f){
 	//status_print('beginning of the find scripts function');
-	var host, rude_host, host_regex;
+	var host, rude_host, host_regex, url_to_curl;
 	
 	f = (typeof f == 'function') ? f : false;
 	
@@ -241,10 +262,17 @@ function find_scripts(temp_dom, current_url, f){
 			}
 			else if (!current_src.match(/^(http|\/\/)/i)){
 				//doesnt have the protocal or host, append them!
-				//first, remove the friggin starting./
-				current_src = current_src.replace(/^\.\//,'');
-				//now, this is the host and the path without host
-				find_tracking_code(current_url.replace(/\/[^\/]*$/,'/')+current_src, true, current_url.replace(/\/[^\/]*$/,'/')+current_src, f);
+				if (current_src.match(/^\//)){
+					//this is from the root
+					url_to_curl = current_url.replace(/(https?:\/\/[^\/]*)\/.*$/, function(match, $1, offset, original){return $1})+current_src;
+				}
+				else{
+					//first, remove the friggin starting./
+					current_src = current_src.replace(/^\.\//,'');
+					//now, this is the host and the path without host
+					url_to_curl = current_url.replace(/\/[^\/]*$/,'/')+current_src;
+				}
+				find_tracking_code(url_to_curl, true, f);
 			}
 			else{
 				//this script is offsite, we are currently not parsing these...
@@ -278,7 +306,7 @@ function eval_current_page() {
 						find_inline_handlers(temp_dom, function(){
 							////status_print('finished with find inline handlers');
 							$.each($.scripts_content, function(){
-								check_for_inclusions(this);
+								check_for_inclusions(this, /_gaq/);
 							});
 						});
 					});
