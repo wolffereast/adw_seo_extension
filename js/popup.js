@@ -6,11 +6,13 @@ $.extend({
 	num_scripts : 0,
 	num_executed : 0,
 	scripts_content : [],
+	matched_gaqs : [],
+	matched_functions : [],
 	account_num : '',
 	quotations : /((["'])(?:(?:(?!\\*\2).)+|(?:\\\\)+|\\\2|[\n\r])*(\2))/,
 	multiline_comment : /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/,
 	single_line_comment : /(\/\/[^\n\r]*[\n\r]+)/,
-	regex_literal : /(?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)/,
+	regex_literal : /(\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)/,
 	html_comments : /(<!--(?:(?!-->).)*-->)/,
 	regex_of_doom : ''
 });
@@ -18,9 +20,9 @@ $.regex_of_doom = new RegExp(
 	'(?:' + $.quotations.source + '|' + 
 	$.multiline_comment.source + '|' + 
 	$.single_line_comment.source + '|' + 
-	'(=\\s*' + $.regex_literal.source + ')|(' + 
-	$.regex_literal.source + '[gimy]?\\.(?:exec|test|match|search|replace|split)\\(' + ')|(' + 
-	'\\.(?:exec|test|match|search|replace|split)\\(' + $.regex_literal.source + ')|' +
+	'=\\s*' + $.regex_literal.source + '|' + 
+	$.regex_literal.source + '[gimy]?\\.(?:exec|test|match|search|replace|split)\\(' + '|' + 
+	'\\.(?:exec|test|match|search|replace|split)\\(' + $.regex_literal.source + '|' +
 	$.html_comments.source + ')' , 'g'
 );
 /*
@@ -37,34 +39,90 @@ $.regex_of_doom = new RegExp(
 */
 
 function status_print(content, message_type){
+	var to_output = '', i;
+	if( Object.prototype.toString.call( content ) === '[object Array]' ) {
+		for (i = 0; i < content.length; i++){
+			to_output = to_output + content[i] + "\n";
+		}
+	}
+	else to_output = content
+
 	message_type = message_type || 'status';
 	var pre = document.createElement('pre');
 	var div = document.createElement("div");
 	div.setAttribute('class','message ' + message_type);
-	pre.appendChild(document.createTextNode(content));
+	pre.appendChild(document.createTextNode(to_output));
 	div.appendChild(pre);
 	document.getElementsByTagName('h2')[0].parentNode.appendChild(div);
 }
 
 /*
- * function to look for inclusion of a piece of regex within a function
+ * function to find the end of a parenthesis
  */
-function check_for_inclusions(code_to_test, target_regex){
+function match_parens(code_to_test, level, opening, closing){
+	var sub_match, matched;
+	temp = new RegExp('^([^'+opening+closing+']*(.))[\\s\\S]*$')
+	console.log(temp.source);
+	return code_to_test.replace(new RegExp('^([^'+opening+closing+']*(.))[\\s\\S]*$'), function(full_match, matched, $2, offset, original){
+		/////status_print('$2 = ' + $2)
+		if ($2 == opening){
+			sub_match = match_parens(original.substr(offset+matched.length), level + 1, opening, closing);
+			/////status_print('in match parens if with level of ' + level + ' and match of ' + matched + ' and a sub match of ' + sub_match);
+			matched = matched + sub_match
+		}
+		else if (level > 1){
+			sub_match = match_parens(original.substr(offset+matched.length), level - 1, opening, closing);
+			/////status_print('in match parens else with level of ' + level + ' and match of ' + matched + ' and a sub match of ' + sub_match);
+			matched += sub_match;
+		}
+		/////status_print('in match parens with level of ' + level + ' returning a match of ' + matched);
+		return matched;
+	});
+}
+
+/*
+ * function to look for inclusion of gaq within a script or function
+ */
+function check_for_gaq_inclusions(code_to_test){
 	// function\s*([^\s(]*)\(([^)]+)\)\s*[\n\r]?\s*{((_gaq)|({[\s\S]*$)|[^{}])*
-	var function_regex, has_target = false;
-	/////status_print("the original text to check:\n"+code_to_test+"\nLooking For: "+target_regex.source);
-	//function_regex = new RegExp('function\s*([^\s(]*)\(([^)]+)\)\s*[\n\r]?\s*{(('+target_regex.source+')|({[\s\S]*$)|[^{}])*','g');
-	/////status_print(function_regex)
-	/*
-	status_print(code_to_test.replace(function_regex, function(match, $1, $2, $3, offset, original){
-		status_print('$1 = ' + $1)
-		status_print('$2 = ' + $2)
-		status_print('$3 = ' + $3)
-		status_print('$4 = ' + $4)
-		status_print('$5 = ' + $5)
-		return '';
-	}));
-	*/
+	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test;
+	
+	array_length = code_to_test.match(/_gaq\.push\([^()]*(?:\(|\))/g);
+	if (array_length) array_length = array_length.length
+	else array_length = 0;
+	
+	for (i=0; i < array_length; i++){
+		/////status_print("the original text to check:\n"+code_to_test);
+		/////status_print(has_target[1],'error');
+		trimmed_code.replace(/_gaq\.push\(([^()]*)(\(|\))/,function($match, $1, $2, offset, original){
+			if ($2 == '(')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '(', ')');
+			else code_to_replace = $match
+			matched_code.push(code_to_replace);
+			$.matched_gaqs.push(code_to_replace);
+			return $match;
+		});
+		/////status_print('code_to_replace is '+code_to_replace);
+		trimmed_code = trimmed_code.replace(code_to_replace, '');
+	}
+	if (array_length){
+		/////status_print(matched_code);
+		//next the fun part - check for functions with gaqs
+		//first, reset the trimming text
+		trimmed_code = code_to_test
+		array_length = code_to_test.match(/function\s*([^\s(]+)\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/g);
+		if (array_length) array_length = array_length.length
+		else array_length = 0;
+		
+		for (i=0; i < array_length; i++){
+			trimmed_code.replace(/function\s*([^\s(]+)\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/,function($match, $1, $2, offset, original){
+				$.matched_functions.push($1);
+				if ($2 == '{')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
+				else code_to_replace = $match
+				return $match;
+			});
+			trimmed_code = trimmed_code.replace(code_to_replace, '');
+		}
+	}
 }
 
 /*
@@ -103,7 +161,7 @@ function find_path(item_to_find, dom_object, id_to_ignore){
 /*
  * Combs the dom_object for any element with an inline handler
  */
-function find_inline_handlers(dom_object, f){
+function find_inline_handlers(dom_object){
 	var component_array, function_regex, handler, parts, part, method_object, i, j;
 	component_array = [];
 	
@@ -156,7 +214,6 @@ function find_inline_handlers(dom_object, f){
 	status_print('caller selectors: '+callers);
 	/*
 	 */
-	if (typeof f == 'function') f.call();
 }
 
 function find_tracking_code(code_to_test, external, f){
@@ -198,25 +255,25 @@ function find_tracking_code(code_to_test, external, f){
 				$.account_num = results[3]
 			}
 		}
-		//status_print($.regex_of_doom);
-		status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
-		//strip the comments from the js.  we dont need no stinkin comments!
+		/////status_print($.regex_of_doom);
+		/////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
+		/////strip the comments from the js.  we dont need no stinkin comments!
 		// /*
-		code_to_test = code_to_test.replace($.regex_of_doom, function(match, $1, $2, $3, $4, $5, $6, $7, $8, $9, offset, original){
+		code_to_test = code_to_test.replace($.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, $9, offset, original){
 			if (typeof $1 != 'undefined') return $1;
-			if (typeof $6 != 'undefined') return $6;
-			if (typeof $7 != 'undefined') return $7;
-			if (typeof $8 != 'undefined') return $8;
+			if (typeof $6 != 'undefined') return $match.replace($6,'');
+			if (typeof $7 != 'undefined') return $match.replace($7,'');
+			if (typeof $8 != 'undefined') return $match.replace($8,'');
 			return '';
 		});
-		status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);		
+		/////status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);		
 		// */
 		
 		// we need to be able to check the code even if it doesnt contain _gaq
 		$.scripts_content.push(code_to_test);
 		
 		$.num_executed += 1;
-		////status_print('num executed: '+$.num_executed);
+		/////status_print('num executed: '+$.num_executed+' num scripts total = '+$.num_scripts+' the type of f is '+typeof f);
 		if ($.num_executed == $.num_scripts && typeof f == 'function') f.call();
 	}
 }
@@ -239,26 +296,22 @@ function find_scripts(temp_dom, current_url, f){
 	//strip the protocal
 	rude_host = host.replace(/https?:\/\//i,'');
 	//the host is now rude... get it?  it doesnt have protocal? ... shut up, its funny
-	////status_print('todays show brought to you by your host '+host);
-	host_regex = new RegExp('(https?:)?(\/\/)?'+rude_host,'i');
-	////status_print('(https?:)?(\/\/)?'+host)
-	host_regex.compile(host_regex);
 	
-	////status_print('there are '+$('script',temp_dom).length+' scripts on the whole page');
+	host_regex = new RegExp('(https?:)?(\/\/)?'+rude_host,'i');
+	host_regex.compile(host_regex);
 	
 	$.num_scripts = $('script',temp_dom).length;
 
 	$('script',temp_dom).each(function(){
 		if (typeof($(this).attr('src')) === 'undefined'){
 			////status_print('internal script '+$(this).text()+' is onsite and parsable');
-			find_tracking_code($(this).text(), false, 'internal', f);
+			find_tracking_code($(this).text(), false, f);
 		}
 		else{
 			var current_src;
 			current_src = $(this).attr('src');
 			if (current_src.match(host_regex)){
-				/////status_print('external script '+external_scripts[i]+' is onsite and parsable');
-				find_tracking_code(current_src, true, current_src, f);
+				find_tracking_code(current_src, true, f);
 			}
 			else if (!current_src.match(/^(http|\/\/)/i)){
 				//doesnt have the protocal or host, append them!
@@ -283,6 +336,17 @@ function find_scripts(temp_dom, current_url, f){
 	});
 }
 
+function eval_current_page_helper(temp_dom){
+	//grab all the inline handlers
+	find_inline_handlers(temp_dom);
+	status_print('after');
+	//parse the scripts
+	$.each($.scripts_content, function(){
+		check_for_gaq_inclusions(this);
+	});
+
+}
+
 function eval_current_page() {
 	var tab_url, xmlhttp, temp_dom;
 	chrome.tabs.getSelected(null, function(tab){
@@ -301,14 +365,8 @@ function eval_current_page() {
 					//this pulls all the scripts on the page
 					// Implemented a callback functionality on this, so call find inline handlers on return
 					find_scripts(temp_dom, tab.url, function(){
-						////status_print('finished with find scripts');
-						//grab all the inline handlers
-						find_inline_handlers(temp_dom, function(){
-							////status_print('finished with find inline handlers');
-							$.each($.scripts_content, function(){
-								check_for_inclusions(this, /_gaq/);
-							});
-						});
+						/////status_print('finished with find scripts');
+						eval_current_page_helper(temp_dom);
 					});
 				}
 				else if (xmlhttp.status==404){
