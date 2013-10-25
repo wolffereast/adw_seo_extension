@@ -8,6 +8,7 @@ $.extend({
 	scripts_content : [],
 	matched_gaqs : [],
 	matched_functions : [],
+	selector_to_function : new Object,
 	account_num : '',
 	quotations : /((["'])(?:(?:(?!\\*\2).)+|(?:\\\\)+|\\\2|[\n\r])*(\2))/,
 	multiline_comment : /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/,
@@ -45,6 +46,11 @@ function status_print(content, message_type){
 			to_output = to_output + content[i] + "\n";
 		}
 	}
+	else if ( Object.prototype.toString.call( content ) === '[object Object]' ) {
+		$.each(content, function(index, value){
+			to_output = to_output + index + ' : ' + value + "\n";
+		});
+	}
 	else to_output = content
 
 	message_type = message_type || 'status';
@@ -61,8 +67,6 @@ function status_print(content, message_type){
  */
 function match_parens(code_to_test, level, opening, closing){
 	var sub_match, matched;
-	temp = new RegExp('^([^'+opening+closing+']*(.))[\\s\\S]*$')
-	console.log(temp.source);
 	return code_to_test.replace(new RegExp('^([^'+opening+closing+']*(.))[\\s\\S]*$'), function(full_match, matched, $2, offset, original){
 		/////status_print('$2 = ' + $2)
 		if ($2 == opening){
@@ -77,6 +81,61 @@ function match_parens(code_to_test, level, opening, closing){
 		}
 		/////status_print('in match parens with level of ' + level + ' returning a match of ' + matched);
 		return matched;
+	});
+}
+
+/*
+ * function to look for function calls
+ */
+function check_for_function_inclusions(function_title){
+	var trimmed_code, num_events, num_funcs, code_to_replace, sub_code_to_replace, i, j, temp_function_regex, temp_selector;
+	
+	temp_function_regex = new RegExp(function_title+'\\s*\\([^()]*(.)', 'g')
+	
+	status_print('looking for ' + function_title)
+	//first try at this?  lets grab all the event handlers
+	$.each($.scripts_content, function(){
+		trimmed_code = this;
+		//check if the function exists
+		num_events = trimmed_code.match(temp_function_regex);
+		//if it does get the number of event handlers
+		if (num_events){
+			num_events = trimmed_code.match(/(?:jQuery|\$)\(([^)]*)\)\.click\(\s*function\s*\(([^)]*)\)\s*[\n\r]*{[^{}]*(.)(?:\);)?/g);
+			if (num_events) num_events = num_events.length
+			else num_events = 0;
+		}
+		else num_events = 0;
+
+		//grab and test all the event handlers
+		for (i=0; i < num_events; i++){
+			/////status_print(trimmed_code);
+			trimmed_code.replace(/(?:jQuery|\$)\(([^)]*)\)\.click\(\s*function\s*\(([^)]*)\)\s*[\n\r]*{[^{}]*(.)(?:\);)?/,function($match, $1, $2, $3, offset, original){
+				if ($3 == '{') code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
+				else code_to_replace = $match;
+				temp_selector = $1;
+				return $match
+			})
+			trimmed_code = trimmed_code.replace(code_to_replace, '');
+			
+			num_funcs = code_to_replace.match(temp_function_regex);
+			if (num_funcs) num_funcs = num_funcs.length
+			else num_funcs = 0;
+
+			//now, parse the event to pull out the function we are looking for
+			for (j=0; j < num_funcs; j++){
+				code_to_replace.replace(new RegExp(function_title+'\\s*\\([^()]*(.)'), function($match, $1, offset, original){
+					if ($1 == '(')sub_code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '(', ')');
+					else sub_code_to_replace = $match
+					return $match;
+				});
+				code_to_replace.replace(sub_code_to_replace, '');
+				//split the selector and populate the global array with the funciton calls
+				$(temp_selector.split(',')).each(function(){
+					if (typeof $.selector_to_function[this] == "undefined") $.selector_to_function[this] = [sub_code_to_replace];
+					else $.selector_to_function[this].push(sub_code_to_replace)
+				});
+			}
+		}
 	});
 }
 
@@ -339,12 +398,17 @@ function find_scripts(temp_dom, current_url, f){
 function eval_current_page_helper(temp_dom){
 	//grab all the inline handlers
 	find_inline_handlers(temp_dom);
-	status_print('after');
 	//parse the scripts
 	$.each($.scripts_content, function(){
 		check_for_gaq_inclusions(this);
 	});
-
+	//parse em again, but this time look for the functions
+	if ($.matched_functions.length){
+		$.each($.matched_functions, function(){
+			check_for_function_inclusions(this);
+		});
+		status_print($.selector_to_function);
+	}
 }
 
 function eval_current_page() {
