@@ -26,6 +26,9 @@ ADW_GLOBALS.regex_of_doom = new RegExp(
 	ADW_GLOBALS.html_comments.source + ')' , 'g'
 );
 
+/*
+ * helper function to print statuses in a pretty manner
+ */
 function status_print(content, message_type){
 	var to_output = '', i;
 	if( Object.prototype.toString.call( content ) === '[object Array]' ) {
@@ -50,7 +53,7 @@ function status_print(content, message_type){
 }
 
 /*
- * function to find the end of a parenthesis
+ * helper function to find the end of a parenthesis
  */
 function match_parens(code_to_test, level, opening, closing){
 	var sub_match, matched;
@@ -281,83 +284,94 @@ function find_inline_handlers(dom_object){
 	 */
 }
 
+function get_external_script(external_url){
+	//this is a script file, have the tab request the script for us
+	status_print('looking for '+external_url);
+	chrome.tabs.getSelected(null, function(tab){
+		//sendMessage(integer tabId, any message, function responseCallback)
+		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getScript", url: external_url}, function(response) {
+			if(response.method=="returnScript"){
+				status_print('returned a script!');
+				
+			}
+    });
+	});
+/* * /
+	status_print('this is an external script with url: '+external_url);
+	jQuery.ajax({
+		type: 'POST',
+		url: external_url,
+		headers: {
+			'Cache-Control':"max-age=0, no-cache, no-store, must-revalidate",
+			'Pragma' : "no-cache",
+			'Expires' : "Wed, 11 Jan 1984 05:00:00 GMT",
+		},
+		success: function(data, textStatus, jqXHR){
+			console.log('success! return data');
+			return data.responseText;
+		},
+		error: function(jqXHR, textStatus, errorThrown){
+			status_print('ajax request to '+external_url+' failed with error: '+errorThrown);
+			return false;
+		}
+	})
+/* */
+}
+
 /*
- * function to find the tracking code
+ * function to trim unwanted items out of the script (comments, regex literals, Quoted items
+ * find the tracking code
  * takes internal (as code) or external (as an address) js
  *
  * external is recursive.  it pulls the code then calls itself with code instead of link
  */
-function find_tracking_code(code_to_test, external, f){
+function parse_script(code_to_test){
 	var xmlhttp, results,
 			univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/i,
 			asynch_regex = /_gaq\.push\(\[(["'])_setAccount\1\s*,\s*(['"])(.*?)\2/i;
-	external = (typeof external == 'undefined') ? false : external;
-	f = (typeof f == 'function') ? f : false;
 	
-	
-	
-	if (external){
-		//this is a script file, time for some AJAX!
-		/////status_print('this is an external script with url: '+code_to_test);
-		xmlhttp = new XMLHttpRequest();
-		
-		xmlhttp.onreadystatechange = function(){
-			if (xmlhttp.readyState==4){
-				if (xmlhttp.status==200){
-					find_tracking_code(xmlhttp.responseText, false, f);
-				}
-				else if (xmlhttp.status==404){
-					status_print('returning a 404 for the ajax request to '+code_to_test,'error');
-				}
-				else{
-					status_print('status is not 200 or 404 for the ajax request to '+code_to_test+', what is it? drumroll please.....'+"\n"+xmlhttp.status,'warning');
-				}
-			}
-		};
-
-		xmlhttp.open("GET",code_to_test+"?t=" + Math.random(),true);
-		xmlhttp.send();
+	//pull on those regex boots, its stompy time!
+	//check for the UA code, need to test both asynch and universal
+	results = code_to_test.match(asynch_regex);
+	if ($(results).length){
+		ADW_GLOBALS.tracking_type = 'asynch';
+		ADW_GLOBALS.account_num = results[3]
 	}
 	else{
-		//this is the script text.  pull on those regex boots, its stompy time!
-		
-		results = code_to_test.match(asynch_regex);
+		results = code_to_test.match(univ_regex);
 		if ($(results).length){
-			status_print('matching the asynch')
-			status_print(''+results[3]);
-			ADW_GLOBALS.tracking_type = 'asynch';
-			ADW_GLOBALS.account_num = results[3]
+			ADW_GLOBALS.tracking_type = 'universal';
+			ADW_GLOBALS.account_num = results[4]
 		}
-		else{
-			results = code_to_test.match(univ_regex);
-			if ($(results).length){
-				status_print('matching the universal')
-				status_print(results);
-				ADW_GLOBALS.tracking_type = 'universal';
-				ADW_GLOBALS.account_num = results[5]
-			}
-		}
-		/////status_print(ADW_GLOBALS.regex_of_doom);
-		/////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
-		//strip the comments from the js.  we dont need no stinkin comments!
-		// /*
-		code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, offset, original){
-			if (typeof $1 != 'undefined') return $1;
-			if (typeof $5 != 'undefined') return $match.replace($5,'');
-			if (typeof $6 != 'undefined') return $match.replace($6,'');
-			if (typeof $7 != 'undefined') return $match.replace($7,'');
-			return '';
-		});
-		/////status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);		
-		// */
-		
-		// we need to be able to check the code even if it doesnt contain _gaq
-		ADW_GLOBALS.scripts_content.push(code_to_test);
-		
-		ADW_GLOBALS.num_executed += 1;
-		/////status_print('num executed: '+ADW_GLOBALS.num_executed+' num scripts total = '+ADW_GLOBALS.num_scripts+' the type of f is '+typeof f);
-		if (ADW_GLOBALS.num_executed == ADW_GLOBALS.num_scripts && typeof f == 'function') f.call();
 	}
+	//if we had results in either, print it out here
+	if ($(results).length)status_print('Tracking Type: '+ADW_GLOBALS.tracking_type+"\n"+'Account Number: '+ADW_GLOBALS.account_num);
+		
+	/////status_print(ADW_GLOBALS.regex_of_doom);
+	/////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
+	//strip the comments from the js.  we dont need no stinkin comments!
+	/* */
+	code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, offset, original){
+		if (typeof $1 != 'undefined') return $1;
+		if (typeof $5 != 'undefined') return $match.replace($5,'');
+		if (typeof $6 != 'undefined') return $match.replace($6,'');
+		if (typeof $7 != 'undefined') return $match.replace($7,'');
+		return '';
+	});
+	/* */
+	/////status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);		
+	
+	//return the modified code
+	return code_to_test;
+	
+	//add all the scripts to the scripts array, we will need ot check them for functions and binds
+	ADW_GLOBALS.scripts_content.push(code_to_test);
+	
+	
+	
+	ADW_GLOBALS.num_executed += 1;
+	/////status_print('num executed: '+ADW_GLOBALS.num_executed+' num scripts total = '+ADW_GLOBALS.num_scripts+' the type of f is '+typeof f);
+	if (ADW_GLOBALS.num_executed == ADW_GLOBALS.num_scripts && typeof f == 'function') f.call();
 }
 
 /*
@@ -365,13 +379,13 @@ function find_tracking_code(code_to_test, external, f){
  * pulls inline and internal scripts directly
  * ignores externals ... for now
  *
- * calls find_tracking_code on each script found
+ * calls parse_script on each script found
  *
  * @todo parse external scripts as well
  */
 function find_scripts(temp_dom, current_url, f){
 	//status_print('beginning of the find scripts function');
-	var host, rude_host, host_regex, url_to_curl;
+	var host, rude_host, host_regex, url_to_curl, arg, external, current_src, code_to_test;
 	
 	f = (typeof f == 'function') ? f : false;
 	
@@ -394,40 +408,48 @@ function find_scripts(temp_dom, current_url, f){
 	ADW_GLOBALS.num_scripts = $('script',temp_dom).length;
 
 	$('script',temp_dom).each(function(){
+		arg = false;
+		external = false;
 		//inline scripts
 		if (typeof($(this).attr('src')) === 'undefined'){
-			status_print($(this).text(), 'warning');
 			////status_print('internal script '+$(this).text()+' is onsite and parsable');
-			find_tracking_code($(this).text(), false, f);
+			arg = $(this).text()
 		}
 		else{
-			var current_src;
+			//all of these options require ajax
+			external = true;
+			
 			current_src = $(this).attr('src');
 			//internals
 			if (current_src.match(host_regex)){
-				find_tracking_code(current_src, true, f);
+				arg = current_src;
 			}
 			else if (!current_src.match(/^(http|\/\/)/i)){
 				//doesnt have the protocal or host, append them!
 				if (current_src.match(/^\//)){
 					//this is from the root
-					url_to_curl = current_url.replace(/(https?:\/\/[^\/]*)\/.*$/, function(match, $1, offset, original){return $1})+current_src;
+					arg = current_url.replace(/(https?:\/\/[^\/]*)\/.*$/, function(match, $1, offset, original){return $1})+current_src;
 				}
 				else{
 					//first, remove the friggin starting./
 					current_src = current_src.replace(/^\.\//,'');
 					//now, this is the host and the path without host
-					url_to_curl = current_url.replace(/\/[^\/]*$/,'/')+current_src;
+					arg = current_url.replace(/\/[^\/]*$/,'/')+current_src;
 				}
-				find_tracking_code(url_to_curl, true, f);
 			}
-			else{
-				//this script is offsite, we are currently not parsing these...
-				//we still need to increment the counter though
-				ADW_GLOBALS.num_executed += 1;
+			if (arg != false){
+				//if the arg has been set, get the script contents
+				arg = get_external_script(arg);
 			}
 		}
-	});
+		//fire the tracking test
+		if (arg != false){
+			code_to_test = parse_script(arg);
+			if (code_to_test.trim() != '') ADW_GLOBALS.scripts_content.push(code_to_test);
+		}
+	});//end of .each
+	
+	console.log('end of the .each');
 }
 
 /*
@@ -471,7 +493,7 @@ function eval_current_page() {
 	chrome.tabs.getSelected(null, function(tab){
 		//sendMessage(integer tabId, any message, function responseCallback)
 		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getDocument"}, function(response) {
-			if(response.method=="getDocument"){
+			if(response.method=="returnDocument"){
 				temp_dom = document.createElement('div');
 				$(temp_dom).attr('id', 'temp-dom-wrapper');
 				temp_dom.innerHTML = response.data;
@@ -483,47 +505,6 @@ function eval_current_page() {
 				});
 			}
     });
-		
-/* * /
-		////status_print('url being checked: '+tab.url);
-		//dont have to worry about activex, this is a chrome browser extension
-		xmlhttp = new XMLHttpRequest();
-		
-		xmlhttp.onreadystatechange=function(){
-			if (xmlhttp.readyState==4){
-				if (xmlhttp.status==200){
-					//return the text to its original dom properties
-					temp_dom = document.createElement('div');
-					$(temp_dom).attr('id', 'temp-dom-wrapper');
-					temp_dom.innerHTML = xmlhttp.responseText;
-					
-					//this pulls all the scripts on the page
-					// Implemented a callback functionality on this, so call find inline handlers on return
-					find_scripts(temp_dom, tab.url, function(){
-						/////status_print('finished with find scripts');
-						eval_current_page_helper(temp_dom);
-					});
-				}
-				else if (xmlhttp.status==404){
-					status_print('returning a 404 for the ajax request - what page do you think has tracking on it?','error');
-				}
-				else{
-					status_print('status is not 200 or 404, what is it? drumroll please.....'+"\n"+xmlhttp.status,'warning');
-				}
-			}
-		};
-		
-		//build the url with auth if it exists
-		if ($('input.username').val() != '' && $('input.password').val() != ''){
-			tab_url = tab.url.replace(/(https?:\/\/)(.*)$/i,"$1"+$('input.username').val()+":"+$('input.password').val()+"@$2");
-			////status_print(tab_url);
-		}
-		else{
-			tab_url = tab.url;
-		}
-		xmlhttp.open("GET",tab_url+"?t=" + Math.random(),true);
-		xmlhttp.send();
-/* */
 	});
 }
 
