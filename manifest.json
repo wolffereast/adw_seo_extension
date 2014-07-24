@@ -5,14 +5,21 @@
   "description": "Review onpage tracking.",
   "version": "1.0",
 	
+	"browser_action": {
+    "default_icon": "icon.png",
+    "default_popup": "popup.html"
+  },
+	
+	"content_scripts": [
+   {
+     "matches": ["<all_urls>"],
+     "js": ["js/contentscript.js"]
+   }
+  ],
+	
 	"permissions": [
 		"tabs",
 		"http://*/*",
 		"https://*/*"
-	],
-	
-  "browser_action": {
-    "default_icon": "icon.png",
-    "default_popup": "popup.html"
-  }
+	]
 }

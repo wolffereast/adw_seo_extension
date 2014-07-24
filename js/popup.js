@@ -1,43 +1,30 @@
 
 //define some global variables... we will want all the locations here
 var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [];
-
-$.extend({
+var ADW_GLOBALS = new Object
+ADW_GLOBALS = {
 	num_scripts : 0,
 	num_executed : 0,
 	scripts_content : [],
-	matched_gaqs : [],
 	matched_functions : [],
 	selector_to_function : new Object,
 	account_num : '',
-	quotations : /((["'])(?:(?:(?!\\*\2).)+|(?:\\\\)+|\\\2|[\n\r])*(\2))/,
+	quotations : /((["'])(?:(?:\\\\)|\\\2|(?!\\\2)\\|(?!\2).|[\n\r])*\2)/,
 	multiline_comment : /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/,
-	single_line_comment : /(\/\/[^\n\r]*[\n\r]+)/,
-	regex_literal : /(\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)/,
+	single_line_comment : /(\/\/[^\n\r]*(?:[\n\r]+|$))/,
+	regex_literal : /(?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)/,
 	html_comments : /(<!--(?:(?!-->).)*-->)/,
-	regex_of_doom : ''
-});
-$.regex_of_doom = new RegExp(
-	'(?:' + $.quotations.source + '|' + 
-	$.multiline_comment.source + '|' + 
-	$.single_line_comment.source + '|' + 
-	'=\\s*' + $.regex_literal.source + '|' + 
-	$.regex_literal.source + '[gimy]?\\.(?:exec|test|match|search|replace|split)\\(' + '|' + 
-	'\\.(?:exec|test|match|search|replace|split)\\(' + $.regex_literal.source + '|' +
-	$.html_comments.source + ')' , 'g'
+	tracking_type : false, //options: false for no tracking, asynch, or universal
+}
+ADW_GLOBALS.regex_of_doom = new RegExp(
+	'(?:' + ADW_GLOBALS.quotations.source + '|' + 
+	ADW_GLOBALS.multiline_comment.source + '|' + 
+	ADW_GLOBALS.single_line_comment.source + '|' + 
+	'((?:=|:)\\s*' + ADW_GLOBALS.regex_literal.source + ')|(' + 
+	ADW_GLOBALS.regex_literal.source + '[gimy]?\\.(?:exec|test|match|search|replace|split)\\(' + ')|(' + 
+	'\\.(?:exec|test|match|search|replace|split)\\(' + ADW_GLOBALS.regex_literal.source + ')|' +
+	ADW_GLOBALS.html_comments.source + ')' , 'g'
 );
-/*
-(?:
-	((["'])(?:(?:(?!\\*\2).)+|(?:\\\\)+|\\\2|[\n\r])*(\2))|
-	(\/\*(?:(?!\*\/).|[\n\r])*\*\/)|
-	(\/\/[^\n\r]*[\n\r]+)|
-	(=\s*(?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/))|
-	((?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)[gimy]?\.(?:exec|test|match|search|replace|split)\()|
-	(\.(?:exec|test|match|search|replace|split)\((?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/))|
-	(<!--(?:(?!-->).)*-->)
-)
-/g 
-*/
 
 function status_print(content, message_type){
 	var to_output = '', i;
@@ -94,7 +81,7 @@ function check_for_function_inclusions(function_title){
 	
 	status_print('looking for ' + function_title)
 	//first try at this?  lets grab all the event handlers
-	$.each($.scripts_content, function(){
+	$.each(ADW_GLOBALS.scripts_content, function(){
 		trimmed_code = this;
 		//check if the function exists
 		num_events = trimmed_code.match(temp_function_regex);
@@ -131,8 +118,8 @@ function check_for_function_inclusions(function_title){
 				code_to_replace.replace(sub_code_to_replace, '');
 				//split the selector and populate the global array with the funciton calls
 				$(temp_selector.split(',')).each(function(){
-					if (typeof $.selector_to_function[this] == "undefined") $.selector_to_function[this] = [sub_code_to_replace];
-					else $.selector_to_function[this].push(sub_code_to_replace)
+					if (typeof ADW_GLOBALS.selector_to_function[this] == "undefined") ADW_GLOBALS.selector_to_function[this.substr(1,this.length - 2)] = [sub_code_to_replace];
+					else ADW_GLOBALS.selector_to_function[this].push(sub_code_to_replace)
 				});
 			}
 		}
@@ -140,41 +127,60 @@ function check_for_function_inclusions(function_title){
 }
 
 /*
- * function to look for inclusion of gaq within a script or function
+ * function to look for inclusion of ua within a script or function
  */
-function check_for_gaq_inclusions(code_to_test){
-	// function\s*([^\s(]*)\(([^)]+)\)\s*[\n\r]?\s*{((_gaq)|({[\s\S]*$)|[^{}])*
-	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test;
+function check_for_ua_inclusions(code_to_test){
+	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test,
+			asynch_regex, asynch_regex_match, univ_regex;
 	
-	array_length = code_to_test.match(/_gaq\.push\([^()]*(?:\(|\))/g);
+	asynch_regex = /_gaq\.push\([^()]*(?:\(|\))/g;
+	asynch_regex_match = /_gaq\.push\([^()]*(?:\(|\))/g;
+	//matches [function name](['"]create['"], ['"][ua code here]['"], ['"][call here - defaults to auto]['"])
+	//function name in \1, UA code in \4
+	univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/;
+	
+	//try asynchronous first
+	array_length = code_to_test.match(asynch_regex);
 	if (array_length) array_length = array_length.length
-	else array_length = 0;
+	else{
+		//now universal
+		array_length = code_to_test.match(univ_regex);
+		if (array_length){
+			status_print(trimmed_code);
+			array_length = array_length.length
+			trimmed_code.replace(univ_regex,function($match, $1, $2, $3, $4, $5, offset, original){
+				status_print($1,'error');
+			});
+		}
+		array_length = 0;
+	}
 	
 	for (i=0; i < array_length; i++){
 		/////status_print("the original text to check:\n"+code_to_test);
 		/////status_print(has_target[1],'error');
-		trimmed_code.replace(/_gaq\.push\(([^()]*)(\(|\))/,function($match, $1, $2, offset, original){
+		trimmed_code.replace(asynch_regex_match,function($match, $1, $2, offset, original){
 			if ($2 == '(')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '(', ')');
 			else code_to_replace = $match
 			matched_code.push(code_to_replace);
-			$.matched_gaqs.push(code_to_replace);
 			return $match;
 		});
 		/////status_print('code_to_replace is '+code_to_replace);
 		trimmed_code = trimmed_code.replace(code_to_replace, '');
 	}
+	
 	if (array_length){
 		/////status_print(matched_code);
 		//next the fun part - check for functions with gaqs
 		//first, reset the trimming text
 		trimmed_code = code_to_test
-		array_length = code_to_test.match(/function\s*([^\s(]+)\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/g);
+		//find the number of functions to look for
+		array_length = code_to_test.match(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/g);
 		if (array_length) array_length = array_length.length
 		else array_length = 0;
 		
 		for (i=0; i < array_length; i++){
-			trimmed_code.replace(/function\s*([^\s(]+)\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/,function($match, $1, $2, offset, original){
-				$.matched_functions.push($1);
+			trimmed_code.replace(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/,function($match, $1, $2, offset, original){
+				ADW_GLOBALS.matched_functions.push($1);
 				if ($2 == '{')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
 				else code_to_replace = $match
 				return $match;
@@ -275,10 +281,20 @@ function find_inline_handlers(dom_object){
 	 */
 }
 
+/*
+ * function to find the tracking code
+ * takes internal (as code) or external (as an address) js
+ *
+ * external is recursive.  it pulls the code then calls itself with code instead of link
+ */
 function find_tracking_code(code_to_test, external, f){
-	var xmlhttp, results;
+	var xmlhttp, results,
+			univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/i,
+			asynch_regex = /_gaq\.push\(\[(["'])_setAccount\1\s*,\s*(['"])(.*?)\2/i;
 	external = (typeof external == 'undefined') ? false : external;
 	f = (typeof f == 'function') ? f : false;
+	
+	
 	
 	if (external){
 		//this is a script file, time for some AJAX!
@@ -304,39 +320,55 @@ function find_tracking_code(code_to_test, external, f){
 	}
 	else{
 		//this is the script text.  pull on those regex boots, its stompy time!
-		if (code_to_test.indexOf('_gaq') !== -1){
-			////status_print('found _gaq within a script, looking in '+url+' for the stash');
-			//this has tracking, AWESOME SAUCE
-			//lets see if they are setting the account
-			results = code_to_test.match(/_gaq\.push\(\[(["'])_setAccount\1\s*,\s*(['"])(.*?)\2/i);
+		
+		results = code_to_test.match(asynch_regex);
+		if ($(results).length){
+			status_print('matching the asynch')
+			status_print(''+results[3]);
+			ADW_GLOBALS.tracking_type = 'asynch';
+			ADW_GLOBALS.account_num = results[3]
+		}
+		else{
+			results = code_to_test.match(univ_regex);
 			if ($(results).length){
-				status_print(results[3]);
-				$.account_num = results[3]
+				status_print('matching the universal')
+				status_print(results);
+				ADW_GLOBALS.tracking_type = 'universal';
+				ADW_GLOBALS.account_num = results[5]
 			}
 		}
-		/////status_print($.regex_of_doom);
+		/////status_print(ADW_GLOBALS.regex_of_doom);
 		/////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
-		/////strip the comments from the js.  we dont need no stinkin comments!
+		//strip the comments from the js.  we dont need no stinkin comments!
 		// /*
-		code_to_test = code_to_test.replace($.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, $9, offset, original){
+		code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, offset, original){
 			if (typeof $1 != 'undefined') return $1;
+			if (typeof $5 != 'undefined') return $match.replace($5,'');
 			if (typeof $6 != 'undefined') return $match.replace($6,'');
 			if (typeof $7 != 'undefined') return $match.replace($7,'');
-			if (typeof $8 != 'undefined') return $match.replace($8,'');
 			return '';
 		});
 		/////status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);		
 		// */
 		
 		// we need to be able to check the code even if it doesnt contain _gaq
-		$.scripts_content.push(code_to_test);
+		ADW_GLOBALS.scripts_content.push(code_to_test);
 		
-		$.num_executed += 1;
-		/////status_print('num executed: '+$.num_executed+' num scripts total = '+$.num_scripts+' the type of f is '+typeof f);
-		if ($.num_executed == $.num_scripts && typeof f == 'function') f.call();
+		ADW_GLOBALS.num_executed += 1;
+		/////status_print('num executed: '+ADW_GLOBALS.num_executed+' num scripts total = '+ADW_GLOBALS.num_scripts+' the type of f is '+typeof f);
+		if (ADW_GLOBALS.num_executed == ADW_GLOBALS.num_scripts && typeof f == 'function') f.call();
 	}
 }
 
+/*
+ * function to find all of the scripts on the page
+ * pulls inline and internal scripts directly
+ * ignores externals ... for now
+ *
+ * calls find_tracking_code on each script found
+ *
+ * @todo parse external scripts as well
+ */
 function find_scripts(temp_dom, current_url, f){
 	//status_print('beginning of the find scripts function');
 	var host, rude_host, host_regex, url_to_curl;
@@ -359,16 +391,19 @@ function find_scripts(temp_dom, current_url, f){
 	host_regex = new RegExp('(https?:)?(\/\/)?'+rude_host,'i');
 	host_regex.compile(host_regex);
 	
-	$.num_scripts = $('script',temp_dom).length;
+	ADW_GLOBALS.num_scripts = $('script',temp_dom).length;
 
 	$('script',temp_dom).each(function(){
+		//inline scripts
 		if (typeof($(this).attr('src')) === 'undefined'){
+			status_print($(this).text(), 'warning');
 			////status_print('internal script '+$(this).text()+' is onsite and parsable');
 			find_tracking_code($(this).text(), false, f);
 		}
 		else{
 			var current_src;
 			current_src = $(this).attr('src');
+			//internals
 			if (current_src.match(host_regex)){
 				find_tracking_code(current_src, true, f);
 			}
@@ -389,31 +424,67 @@ function find_scripts(temp_dom, current_url, f){
 			else{
 				//this script is offsite, we are currently not parsing these...
 				//we still need to increment the counter though
-				$.num_executed += 1;
+				ADW_GLOBALS.num_executed += 1;
 			}
 		}
 	});
 }
 
+/*
+ * takes resources found earlier and parses them
+ * looks for inline handlers and function calls that associate with GA calls
+ *
+ * prints out selectors for elements on the page with handlers
+ * @todo - generate borders around elements with handlers for visual
+ * @todo - onclick scrolling to element in question
+ * @todo - number of each kind of element on the page
+ */
 function eval_current_page_helper(temp_dom){
 	//grab all the inline handlers
 	find_inline_handlers(temp_dom);
 	//parse the scripts
-	$.each($.scripts_content, function(){
-		check_for_gaq_inclusions(this);
+	$.each(ADW_GLOBALS.scripts_content, function(){
+		check_for_ua_inclusions(this);
 	});
 	//parse em again, but this time look for the functions
-	if ($.matched_functions.length){
-		$.each($.matched_functions, function(){
+	if (ADW_GLOBALS.matched_functions.length){
+		$.each(ADW_GLOBALS.matched_functions, function(){
 			check_for_function_inclusions(this);
 		});
-		status_print($.selector_to_function);
 	}
+	$.each(ADW_GLOBALS.selector_to_function, function(index, value){
+		if (!$(index, temp_dom).length)delete ADW_GLOBALS.selector_to_function[index]
+	});
+	status_print(ADW_GLOBALS.selector_to_function);
 }
 
+/*
+ * Finds the current chrome tab
+ * Adds http auth if it is set
+ * cURLs in the info from the tab
+ *
+ * calls find_scripts
+ * 	callback of eval_current_page_helper
+ */
 function eval_current_page() {
 	var tab_url, xmlhttp, temp_dom;
 	chrome.tabs.getSelected(null, function(tab){
+		//sendMessage(integer tabId, any message, function responseCallback)
+		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getDocument"}, function(response) {
+			if(response.method=="getDocument"){
+				temp_dom = document.createElement('div');
+				$(temp_dom).attr('id', 'temp-dom-wrapper');
+				temp_dom.innerHTML = response.data;
+				
+				console.log(temp_dom);
+				find_scripts(temp_dom, tab.url, function(){
+					/////status_print('finished with find scripts');
+					eval_current_page_helper(temp_dom);
+				});
+			}
+    });
+		
+/* * /
 		////status_print('url being checked: '+tab.url);
 		//dont have to worry about activex, this is a chrome browser extension
 		xmlhttp = new XMLHttpRequest();
@@ -452,6 +523,7 @@ function eval_current_page() {
 		}
 		xmlhttp.open("GET",tab_url+"?t=" + Math.random(),true);
 		xmlhttp.send();
+/* */
 	});
 }
 
