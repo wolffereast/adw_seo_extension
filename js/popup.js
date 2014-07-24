@@ -131,6 +131,8 @@ function check_for_function_inclusions(function_title){
 
 /*
  * function to look for inclusion of ua within a script or function
+ *
+ * code_to_test is the trimmed contents of an inline or included script
  */
 function check_for_ua_inclusions(code_to_test){
 	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test,
@@ -140,8 +142,7 @@ function check_for_ua_inclusions(code_to_test){
 	asynch_regex_match = /_gaq\.push\([^()]*(?:\(|\))/g;
 	//matches [function name](['"]create['"], ['"][ua code here]['"], ['"][call here - defaults to auto]['"])
 	//function name in \1, UA code in \4
-	univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/;
-	
+	univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])(?:[^'"]+|(?!\2).)*\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/;
 	//try asynchronous first
 	array_length = code_to_test.match(asynch_regex);
 	if (array_length) array_length = array_length.length
@@ -230,12 +231,12 @@ function find_path(item_to_find, dom_object, id_to_ignore){
  * Combs the dom_object for any element with an inline handler
  */
 function find_inline_handlers(dom_object){
-	var component_array, function_regex, handler, parts, part, method_object, i, j;
-	component_array = [];
+	var component_array = [], handler, parts, part, method_object, i, j,
+			function_regex = /^([a-zA-Z0-9\s_.-]+)\([^)]*\)$/,
+			method_regex = /^.*\.([^.]*)$/;
+			
 	
-	function_regex =/^([a-zA-Z0-9\s_.-]+)\([^)]*\)$/;
-	method_regex = /^.*\.([^.]*)$/;
-	
+/* * /
 	$('[onclick]', dom_object).each(function(){
 		handler = $(this).attr('onclick');
 
@@ -261,6 +262,7 @@ function find_inline_handlers(dom_object){
 			}//end if parts[i].length
 		}//end for
 	});//end jquery onclick selector
+/* */
 	/*
 	 * uncomment this to print out the functions and methods found
 	 * /
@@ -280,42 +282,25 @@ function find_inline_handlers(dom_object){
 	status_print('methods: '+methods);
 	status_print('functions: '+functions);
 	status_print('caller selectors: '+callers);
-	/*
-	 */
+	/* */
 }
 
-function get_external_script(external_url){
+function get_external_script(external_url, f){
+	f = (typeof f != "undefined") ? f : false;
 	//this is a script file, have the tab request the script for us
-	status_print('looking for '+external_url);
 	chrome.tabs.getSelected(null, function(tab){
 		//sendMessage(integer tabId, any message, function responseCallback)
 		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getScript", url: external_url}, function(response) {
 			if(response.method=="returnScript"){
-				status_print('returned a script!');
-				
+				parse_script(response.data, f);
+			}
+			else{
+				//even if it is a bad request, it has been parsed...
+				ADW_GLOBALS.num_executed += 1;
+				status_print('returned an error: '+response.data);
 			}
     });
 	});
-/* * /
-	status_print('this is an external script with url: '+external_url);
-	jQuery.ajax({
-		type: 'POST',
-		url: external_url,
-		headers: {
-			'Cache-Control':"max-age=0, no-cache, no-store, must-revalidate",
-			'Pragma' : "no-cache",
-			'Expires' : "Wed, 11 Jan 1984 05:00:00 GMT",
-		},
-		success: function(data, textStatus, jqXHR){
-			console.log('success! return data');
-			return data.responseText;
-		},
-		error: function(jqXHR, textStatus, errorThrown){
-			status_print('ajax request to '+external_url+' failed with error: '+errorThrown);
-			return false;
-		}
-	})
-/* */
 }
 
 /*
@@ -325,10 +310,12 @@ function get_external_script(external_url){
  *
  * external is recursive.  it pulls the code then calls itself with code instead of link
  */
-function parse_script(code_to_test){
+function parse_script(code_to_test, f){
 	var xmlhttp, results,
 			univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/i,
 			asynch_regex = /_gaq\.push\(\[(["'])_setAccount\1\s*,\s*(['"])(.*?)\2/i;
+			
+	f = (typeof f != "undefined") ? f : false;
 	
 	//pull on those regex boots, its stompy time!
 	//check for the UA code, need to test both asynch and universal
@@ -361,13 +348,8 @@ function parse_script(code_to_test){
 	/* */
 	/////status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);		
 	
-	//return the modified code
-	return code_to_test;
-	
 	//add all the scripts to the scripts array, we will need ot check them for functions and binds
 	ADW_GLOBALS.scripts_content.push(code_to_test);
-	
-	
 	
 	ADW_GLOBALS.num_executed += 1;
 	/////status_print('num executed: '+ADW_GLOBALS.num_executed+' num scripts total = '+ADW_GLOBALS.num_scripts+' the type of f is '+typeof f);
@@ -385,7 +367,7 @@ function parse_script(code_to_test){
  */
 function find_scripts(temp_dom, current_url, f){
 	//status_print('beginning of the find scripts function');
-	var host, rude_host, host_regex, url_to_curl, arg, external, current_src, code_to_test;
+	var host, rude_host, host_regex, url_to_curl, arg, external, current_src, code_to_test, incremented;
 	
 	f = (typeof f == 'function') ? f : false;
 	
@@ -410,12 +392,14 @@ function find_scripts(temp_dom, current_url, f){
 	$('script',temp_dom).each(function(){
 		arg = false;
 		external = false;
+		incremented = false;
 		//inline scripts
 		if (typeof($(this).attr('src')) === 'undefined'){
 			////status_print('internal script '+$(this).text()+' is onsite and parsable');
-			arg = $(this).text()
+			parse_script($(this).text(), f);
+			incremented = true;
 		}
-		else{
+		else if($(this).attr('src').indexOf('chrome-extension://') == -1){
 			//all of these options require ajax
 			external = true;
 			
@@ -437,19 +421,17 @@ function find_scripts(temp_dom, current_url, f){
 					arg = current_url.replace(/\/[^\/]*$/,'/')+current_src;
 				}
 			}
+			
 			if (arg != false){
 				//if the arg has been set, get the script contents
-				arg = get_external_script(arg);
+				//get external script calls parse script on the returned contents
+				get_external_script(arg, f);
+				incremented = true;
 			}
 		}
-		//fire the tracking test
-		if (arg != false){
-			code_to_test = parse_script(arg);
-			if (code_to_test.trim() != '') ADW_GLOBALS.scripts_content.push(code_to_test);
-		}
+		//this keeps the count correct
+		if (!incremented) ADW_GLOBALS.num_executed += 1;
 	});//end of .each
-	
-	console.log('end of the .each');
 }
 
 /*
@@ -462,12 +444,15 @@ function find_scripts(temp_dom, current_url, f){
  * @todo - number of each kind of element on the page
  */
 function eval_current_page_helper(temp_dom){
+	/////status_print('in the eval current page helper');
 	//grab all the inline handlers
-	find_inline_handlers(temp_dom);
+	//find_inline_handlers(temp_dom);
 	//parse the scripts
 	$.each(ADW_GLOBALS.scripts_content, function(){
-		check_for_ua_inclusions(this);
+		console.log(this.toString());
+		check_for_ua_inclusions(this.toString());
 	});
+/* * /
 	//parse em again, but this time look for the functions
 	if (ADW_GLOBALS.matched_functions.length){
 		$.each(ADW_GLOBALS.matched_functions, function(){
@@ -477,7 +462,8 @@ function eval_current_page_helper(temp_dom){
 	$.each(ADW_GLOBALS.selector_to_function, function(index, value){
 		if (!$(index, temp_dom).length)delete ADW_GLOBALS.selector_to_function[index]
 	});
-	status_print(ADW_GLOBALS.selector_to_function);
+
+/* */	status_print(ADW_GLOBALS.selector_to_function);
 }
 
 /*
@@ -498,7 +484,6 @@ function eval_current_page() {
 				$(temp_dom).attr('id', 'temp-dom-wrapper');
 				temp_dom.innerHTML = response.data;
 				
-				console.log(temp_dom);
 				find_scripts(temp_dom, tab.url, function(){
 					/////status_print('finished with find scripts');
 					eval_current_page_helper(temp_dom);
