@@ -7,6 +7,7 @@ ADW_GLOBALS = {
 	num_executed : 0,
 	scripts_content : [],
 	matched_functions : [],
+	inline_calls : [],
 	selector_to_function : new Object,
 	account_num : '',
 	quotations : /((["'])(?:(?:\\\\)|\\\2|(?!\\\2)\\|(?!\2).|[\n\r])*\2)/,
@@ -15,6 +16,7 @@ ADW_GLOBALS = {
 	regex_literal : /(?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)/,
 	html_comments : /(<!--(?:(?!-->).)*-->)/,
 	tracking_type : false, //options: false for no tracking, asynch, or universal
+	caller : '', //this will hold the object or function name - traditionally _gaq for asynch and gs for univ
 }
 ADW_GLOBALS.regex_of_doom = new RegExp(
 	'(?:' + ADW_GLOBALS.quotations.source + '|' + 
@@ -82,7 +84,7 @@ function check_for_function_inclusions(function_title){
 	
 	temp_function_regex = new RegExp(function_title+'\\s*\\([^()]*(.)', 'g')
 	
-	status_print('looking for ' + function_title)
+	if (jQuery('.print_functions:checked').length) status_print('looking for ' + function_title)
 	//first try at this?  lets grab all the event handlers
 	$.each(ADW_GLOBALS.scripts_content, function(){
 		trimmed_code = this;
@@ -129,113 +131,11 @@ function check_for_function_inclusions(function_title){
 	});
 }
 
-/*
- * function to look for inclusion of ua within a script or function
- *
- * code_to_test is the trimmed contents of an inline or included script
- */
-function check_for_ua_inclusions(code_to_test){
-	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test,
-			asynch_regex, asynch_regex_match, univ_regex;
-	
-	asynch_regex = /_gaq\.push\([^()]*(?:\(|\))/g;
-	asynch_regex_match = /_gaq\.push\([^()]*(?:\(|\))/g;
-	//matches [function name](['"]create['"], ['"][ua code here]['"], ['"][call here - defaults to auto]['"])
-	//function name in \1, UA code in \4
-	univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])(?:[^'"]+|(?!\2).)*\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/;
-	//try asynchronous first
-	array_length = code_to_test.match(asynch_regex);
-	if (array_length) array_length = array_length.length
-	else{
-		//now universal
-		array_length = code_to_test.match(univ_regex);
-		if (array_length){
-			status_print(trimmed_code);
-			array_length = array_length.length
-			trimmed_code.replace(univ_regex,function($match, $1, $2, $3, $4, $5, offset, original){
-				status_print($1,'error');
-			});
-		}
-		array_length = 0;
-	}
-	
-	for (i=0; i < array_length; i++){
-		/////status_print("the original text to check:\n"+code_to_test);
-		/////status_print(has_target[1],'error');
-		trimmed_code.replace(asynch_regex_match,function($match, $1, $2, offset, original){
-			if ($2 == '(')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '(', ')');
-			else code_to_replace = $match
-			matched_code.push(code_to_replace);
-			return $match;
-		});
-		/////status_print('code_to_replace is '+code_to_replace);
-		trimmed_code = trimmed_code.replace(code_to_replace, '');
-	}
-	
-	if (array_length){
-		/////status_print(matched_code);
-		//next the fun part - check for functions with gaqs
-		//first, reset the trimming text
-		trimmed_code = code_to_test
-		//find the number of functions to look for
-		array_length = code_to_test.match(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/g);
-		if (array_length) array_length = array_length.length
-		else array_length = 0;
-		
-		for (i=0; i < array_length; i++){
-			trimmed_code.replace(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/,function($match, $1, $2, offset, original){
-				ADW_GLOBALS.matched_functions.push($1);
-				if ($2 == '{')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
-				else code_to_replace = $match
-				return $match;
-			});
-			trimmed_code = trimmed_code.replace(code_to_replace, '');
-		}
-	}
-}
-
-/*
- * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
- * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
- */
-function find_path(item_to_find, dom_object, id_to_ignore){
-	var selector, id, classNames;
-	
-	id_to_ignore = (typeof id_to_ignore != 'undefined') ? id_to_ignore : false;
-
-	id = $(item_to_find, dom_object).attr("id");
-	if (id && id_to_ignore !== false){
-		if (id == id_to_ignore) return '';
-	}
-
-	if ($(item_to_find, dom_object).parent().length){
-		selector = find_path($(item_to_find, dom_object).parent(), dom_object, id_to_ignore);
-	}
-	else selector = '';
-	
-	selector += " "+ $(item_to_find, dom_object)[0].nodeName;
-
-	if (id) { 
-		selector += "#"+ id;
-	}
-
-	classNames = $(item_to_find, dom_object).attr("class");
-	if (classNames) {
-		selector += "." + $.trim(classNames).replace(/\s/gi, ".");
-	}
-
-	return selector;
-}
-
-/*
- * Combs the dom_object for any element with an inline handler
- */
-function find_inline_handlers(dom_object){
+function find_inline_handlers(code_to_test, tracking_regex){
 	var component_array = [], handler, parts, part, method_object, i, j,
 			function_regex = /^([a-zA-Z0-9\s_.-]+)\([^)]*\)$/,
 			method_regex = /^.*\.([^.]*)$/;
 			
-	
 /* * /
 	$('[onclick]', dom_object).each(function(){
 		handler = $(this).attr('onclick');
@@ -283,6 +183,86 @@ function find_inline_handlers(dom_object){
 	status_print('functions: '+functions);
 	status_print('caller selectors: '+callers);
 	/* */
+	return code_to_test;
+}
+
+/*
+ * function to look for inclusion of ua within a script or function
+ *
+ * code_to_test is the trimmed contents of an inline or included script
+ */
+function check_for_ua_inclusions(code_to_test){
+	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test, tracking_regex;
+	
+	//split based on call type
+	if (ADW_GLOBALS.tracking_type == 'asynch'){
+		tracking_regex = new RegExp('('+ADW_GLOBALS.caller+/\.push\([^()]*(?:\(|\))/.source+')', 'g');
+	}
+	else if(ADW_GLOBALS.tracking_type == 'universal'){
+		tracking_regex = new RegExp('('+ADW_GLOBALS.caller+/\s*\((?:(?:(['"])(?:(?!\2).)*\2)|[^'",]*)\s*(?:,\s*(?:(?:(['"])(?:(?!\3).)*\3)|[^'",]*))+\)/.source+')', 'g');
+	}
+		
+	//next the fun part - check for functions, test them for tracking, then remove them from the text
+	//find the number of functions to look for
+	array_length = code_to_test.match(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/g);
+	if (array_length) array_length = array_length.length
+	else array_length = 0;
+	
+	for (i=0; i < array_length; i++){
+		trimmed_code.replace(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/,function($match, $1, $2, offset, original){
+			if ($2 == '{')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
+			else code_to_replace = $match
+			//great, we have the full function, now does it contain the regex?
+			if ($match.match(tracking_regex)){
+				ADW_GLOBALS.matched_functions.push($1);
+				/////status_print($match)
+				/////status_print($1)
+			}
+			return $match;
+		});
+		trimmed_code = trimmed_code.replace(code_to_replace, '');
+	}
+	
+	//all functions removed, any remaining tracking is inline
+	//@todo need to remove the handlers here
+	if (trimmed_code.match(tracking_regex)){
+		trimmed_code = find_inline_handlers(trimmed_code, tracking_regex);
+		
+		ADW_GLOBALS.inline_calls = ADW_GLOBALS.inline_calls.concat(trimmed_code.match(tracking_regex))
+	}
+}
+
+/*
+ * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
+ * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
+ */
+function find_path(item_to_find, dom_object, id_to_ignore){
+	var selector, id, classNames;
+	
+	id_to_ignore = (typeof id_to_ignore != 'undefined') ? id_to_ignore : false;
+
+	id = $(item_to_find, dom_object).attr("id");
+	if (id && id_to_ignore !== false){
+		if (id == id_to_ignore) return '';
+	}
+
+	if ($(item_to_find, dom_object).parent().length){
+		selector = find_path($(item_to_find, dom_object).parent(), dom_object, id_to_ignore);
+	}
+	else selector = '';
+	
+	selector += " "+ $(item_to_find, dom_object)[0].nodeName;
+
+	if (id) { 
+		selector += "#"+ id;
+	}
+
+	classNames = $(item_to_find, dom_object).attr("class");
+	if (classNames) {
+		selector += "." + $.trim(classNames).replace(/\s/gi, ".");
+	}
+
+	return selector;
 }
 
 function get_external_script(external_url, f){
@@ -304,35 +284,32 @@ function get_external_script(external_url, f){
 }
 
 /*
- * function to trim unwanted items out of the script (comments, regex literals, Quoted items
+ * function to trim unwanted items out of the script (comments, regex literals, Quoted items)
  * find the tracking code
- * takes internal (as code) or external (as an address) js
- *
- * external is recursive.  it pulls the code then calls itself with code instead of link
+ * takes code snippets (from internals directly or files via the get_external_script call)
  */
 function parse_script(code_to_test, f){
 	var xmlhttp, results,
 			univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/i,
-			asynch_regex = /_gaq\.push\(\[(["'])_setAccount\1\s*,\s*(['"])(.*?)\2/i;
+			asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
 			
 	f = (typeof f != "undefined") ? f : false;
 	
 	//pull on those regex boots, its stompy time!
 	//check for the UA code, need to test both asynch and universal
 	results = code_to_test.match(asynch_regex);
-	if ($(results).length){
-		ADW_GLOBALS.tracking_type = 'asynch';
-		ADW_GLOBALS.account_num = results[3]
-	}
+	if ($(results).length) ADW_GLOBALS.tracking_type = 'asynch';
 	else{
 		results = code_to_test.match(univ_regex);
-		if ($(results).length){
-			ADW_GLOBALS.tracking_type = 'universal';
-			ADW_GLOBALS.account_num = results[4]
-		}
+		if ($(results).length) ADW_GLOBALS.tracking_type = 'universal';
 	}
 	//if we had results in either, print it out here
-	if ($(results).length)status_print('Tracking Type: '+ADW_GLOBALS.tracking_type+"\n"+'Account Number: '+ADW_GLOBALS.account_num);
+	if ($(results).length){
+		//both regexes match these positions - convenient
+		ADW_GLOBALS.account_num = results[4];
+		ADW_GLOBALS.caller = results[1];
+		status_print('Tracking Type: '+ADW_GLOBALS.tracking_type+"\n"+'Account Number: '+ADW_GLOBALS.account_num);
+	}
 		
 	/////status_print(ADW_GLOBALS.regex_of_doom);
 	/////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
@@ -444,15 +421,16 @@ function find_scripts(temp_dom, current_url, f){
  * @todo - number of each kind of element on the page
  */
 function eval_current_page_helper(temp_dom){
+	var i;
 	/////status_print('in the eval current page helper');
 	//grab all the inline handlers
 	//find_inline_handlers(temp_dom);
 	//parse the scripts
 	$.each(ADW_GLOBALS.scripts_content, function(){
-		console.log(this.toString());
+		/////console.log(this.toString());
 		check_for_ua_inclusions(this.toString());
 	});
-/* * /
+/* */
 	//parse em again, but this time look for the functions
 	if (ADW_GLOBALS.matched_functions.length){
 		$.each(ADW_GLOBALS.matched_functions, function(){
@@ -462,8 +440,27 @@ function eval_current_page_helper(temp_dom){
 	$.each(ADW_GLOBALS.selector_to_function, function(index, value){
 		if (!$(index, temp_dom).length)delete ADW_GLOBALS.selector_to_function[index]
 	});
+/* */
+	//function calls print
+	ADW_GLOBALS.selector_to_function = clean_array('', ADW_GLOBALS.selector_to_function);
+	if (ADW_GLOBALS.selector_to_function.length != 0)status_print(ADW_GLOBALS.selector_to_function);
+	else status_print('No function calls found')
+	
+	//inline items print
+	ADW_GLOBALS.inline_calls = clean_array('', ADW_GLOBALS.inline_calls);
+	if (ADW_GLOBALS.inline_calls.length != 0)status_print(['Inline Calls'].concat(ADW_GLOBALS.inline_calls));
+	status_print('Testing Complete', 'warning')
+}
 
-/* */	status_print(ADW_GLOBALS.selector_to_function);
+function clean_array(delete_value, array_to_parse){
+	var i;
+	for (i = 0; i < array_to_parse.length; i++) {
+    if (array_to_parse[i] == '') {         
+      array_to_parse.splice(i, 1);
+      i--;
+    }
+  }
+	return array_to_parse;
 }
 
 /*
