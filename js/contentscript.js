@@ -1,5 +1,7 @@
 chrome.runtime.onMessage.addListener(
 	function(message, sender, sendResponse) {
+		var responseText;
+		
 		if(typeof message.origin != "undefined" && message.origin == 'seo_script'){
 			switch (message.method){
 				case 'getDocument':
@@ -23,6 +25,21 @@ chrome.runtime.onMessage.addListener(
 					xmlhttp.open("GET",message.url+"?t=" + Math.random(),true);
 					xmlhttp.send();
 					
+					break;
+				case 'tagClass':
+					jQuery(message.target).addClass(message.newClass);
+					return false;
+					break;
+				case 'scrollTo':
+					jQuery('.seo_extension_selected').removeClass('seo_extension_selected');
+					jQuery(message.target).addClass('seo_extension_selected');
+					var scrollTop = '';
+					if (message.windowHeight < jQuery(window).outerHeight()) scrollTop = (jQuery(window).outerHeight() + message.windowHeight) / 2;
+					else scrollTop = jQuery(window).outerHeight() / 2;
+					
+					//we want the item halfway up the screen, hence - outer height /2
+					$('html, body').animate({scrollTop: (jQuery(message.target).offset().top - scrollTop) + 'px'}, 'fast');
+					return false;
 					break;
 			}
 		}

@@ -8,31 +8,33 @@ ADW_GLOBALS = {
 	scripts_content : [],
 	matched_functions : [],
 	inline_calls : [],
-	selector_to_function : new Object,
+	onclicks : {},
+	selector_to_function : {},
 	account_num : '',
-	quotations : /((["'])(?:(?:\\\\)|\\\2|(?!\\\2)\\|(?!\2).|[\n\r])*\2)/,
-	multiline_comment : /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/,
-	single_line_comment : /(\/\/[^\n\r]*(?:[\n\r]+|$))/,
+	quotations : /((["'])(?:(?:\\\\)|\\\2|(?!\\\2)\\|(?!\2).|[\n\r])*\2)/,//contains 2 capturing
+	multiline_comment : /(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/,//contains 1 capturing
+	single_line_comment : /(\/\/[^\n\r]*(?:[\n\r]+|$))/,// contains 1 capturing
 	regex_literal : /(?:\/(?:(?:(?!\\*\/).)|\\\\|\\\/|[^\\]\[(?:\\\\|\\\]|[^]])+\])+\/)/,
-	html_comments : /(<!--(?:(?!-->).)*-->)/,
+	html_comments : /(<!--(?:(?!-->).)*-->)/,//contains 1 capturing
 	tracking_type : false, //options: false for no tracking, asynch, or universal
 	caller : '', //this will hold the object or function name - traditionally _gaq for asynch and gs for univ
 }
 ADW_GLOBALS.regex_of_doom = new RegExp(
-	'(?:' + ADW_GLOBALS.quotations.source + '|' + 
-	ADW_GLOBALS.multiline_comment.source + '|' + 
-	ADW_GLOBALS.single_line_comment.source + '|' + 
-	'((?:=|:)\\s*' + ADW_GLOBALS.regex_literal.source + ')|(' + 
-	ADW_GLOBALS.regex_literal.source + '[gimy]?\\.(?:exec|test|match|search|replace|split)\\(' + ')|(' + 
-	'\\.(?:exec|test|match|search|replace|split)\\(' + ADW_GLOBALS.regex_literal.source + ')|' +
-	ADW_GLOBALS.html_comments.source + ')' , 'g'
+	'(?:' + ADW_GLOBALS.quotations.source + '|' + //1 and 2
+	ADW_GLOBALS.multiline_comment.source + '|' + //3
+	ADW_GLOBALS.single_line_comment.source + '|' + //4
+	'((?:=|:)\\s*' + ADW_GLOBALS.regex_literal.source + ')|(' + //5 and beginning of 6
+	ADW_GLOBALS.regex_literal.source + '([gimy]?\\.(?:exec|test|match|search|replace|split))\\(' + ')|(' + //end 6, 7, begin 8
+	'(\\.(?:exec|test|match|search|replace|split))\\(' + ADW_GLOBALS.regex_literal.source + '[gimy]?)|' + //end 8, 9
+	ADW_GLOBALS.html_comments.source + ')' , 'g'//10
 );
 
 /*
- * helper function to print statuses in a pretty manner (to clarify: manner being a behavior, not a large house)
+ * helper function to print statuses in a pretty manner (to clarify: manner being a behavior, not manor: a large house)
  */
-function status_print(content, message_type){
+function status_print(content, message_type, add_link){
 	var to_output = '', i;
+	add_link = typeof add_link != "undefined" ? add_link : false;
 	if( Object.prototype.toString.call( content ) === '[object Array]' ) {
 		for (i = 0; i < content.length; i++){
 			to_output = to_output + content[i] + "\n";
@@ -40,7 +42,7 @@ function status_print(content, message_type){
 	}
 	else if ( Object.prototype.toString.call( content ) === '[object Object]' ) {
 		$.each(content, function(index, value){
-			to_output = to_output + index + "\n  " + value + "\n";
+			to_output = to_output + '<div class="selector_wrapper"><span class="selector">' + index + '</span>' + (add_link && value != '' ? ' <input type="button" class="scrollTo" value="Scroll to Element">' : '') + "\n  " + value + "\n";
 		});
 	}
 	else to_output = content
@@ -49,9 +51,13 @@ function status_print(content, message_type){
 	var pre = document.createElement('pre');
 	var div = document.createElement("div");
 	div.setAttribute('class','message ' + message_type);
-	pre.appendChild(document.createTextNode(to_output));
+	jQuery(pre).html(to_output);
 	div.appendChild(pre);
 	document.getElementsByTagName('h2')[0].parentNode.appendChild(div);
+	//add the inline handler
+	jQuery('input.scrollTo').click(function(){
+		scrollto_element(jQuery(this).siblings('.selector').html());
+	});
 }
 
 /*
@@ -80,6 +86,52 @@ function match_parens(code_to_test, level, opening, closing){
 		return matched;
 	});
 }
+
+/*
+ * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
+ * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
+ */
+function find_path(item_to_find, dom_object, id_to_ignore){
+	var selector, id, classNames;
+	
+	id_to_ignore = (typeof id_to_ignore != 'undefined') ? id_to_ignore : false;
+
+	id = $(item_to_find, dom_object).attr("id");
+	if (id && id_to_ignore !== false){
+		if (id == id_to_ignore) return '';
+	}
+
+	if ($(item_to_find, dom_object).parent().length){
+		selector = find_path($(item_to_find, dom_object).parent(), dom_object, id_to_ignore);
+	}
+	else selector = '';
+	
+	selector += " "+ $(item_to_find, dom_object)[0].nodeName;
+
+	if (id) { 
+		selector += "#"+ id;
+	}
+
+	classNames = $(item_to_find, dom_object).attr("class");
+	if (classNames) {
+		selector += "." + $.trim(classNames).replace(/\s/gi, ".");
+	}
+
+	return selector;
+}
+
+function scrollto_element(target) {
+	chrome.tabs.getSelected(null, function(tab){
+		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "scrollTo", target: target, windowHeight: jQuery(window).height()});
+	});
+}
+
+function tag_element(target, newClass) {
+	chrome.tabs.getSelected(null, function(tab){
+		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "tagClass", target: target, newClass: newClass});
+	});
+}
+
 
 /*
  * function to look for function calls
@@ -132,7 +184,10 @@ function check_for_function_inclusions(function_title){
 				code_to_replace.replace(sub_code_to_replace, '');
 				//split the selector and populate the global array with the funciton calls
 				$(temp_selector.split(',')).each(function(){
-					if (typeof ADW_GLOBALS.selector_to_function[this] == "undefined") ADW_GLOBALS.selector_to_function[this.substr(1,this.length - 2)] = [sub_code_to_replace];
+					if (typeof ADW_GLOBALS.selector_to_function[this] == "undefined"){
+						ADW_GLOBALS.selector_to_function[this.substr(1,this.length - 2)] = [sub_code_to_replace];
+						tag_element(this.substr(1,this.length - 2), 'seo_extension_target function_tracking');
+					}
 					else ADW_GLOBALS.selector_to_function[this].push(sub_code_to_replace)
 				});
 			}
@@ -162,54 +217,36 @@ function find_inline_handlers(code_to_test, tracking_regex){
 			code_to_test = code_to_test.replace(code_to_replace, '');
 		}
 	}
-/* * /
+	return code_to_test;
+}
+
+function find_onclick_handlers(dom_object, tracking_regex){
+	var handler, selector;
+	
 	$('[onclick]', dom_object).each(function(){
 		handler = $(this).attr('onclick');
-
-		parts = handler.split(';');
-		for (i=0, j=parts.length; i<j; i++){
-			if (parts[i].length){
-				//status_print(parts[i]);
-				part = parts[i].match(function_regex);
-				if (part != null){
-					////status_print(part[1], 'error');
-					method_object = part[1].match(method_regex);
-					if (method_object != null){
-						////status_print('method: '+method_object,'warning');
-						methods.push(method_object[1]);
-						method_calls.push(method_object[2]);
-					}//end if method object null
-					else if ($.inArray(part[1], function_calls) === -1){
-						////status_print('function: '+part,'warning');
-						function_calls.push(part[1]);
-					}
-					function_callers.push(this);
-				}//end if part null
-			}//end if parts[i].length
-		}//end for
+		selector = find_path(this, dom_object, 'temp-dom-wrapper');
+		
+		while(handler.match(tracking_regex) !== null){
+			code_to_replace = '';
+			handler.replace(tracking_regex, function($match, offset, original){
+				//level 1, as we only have the opening paren so far
+				code_to_replace = $match + match_parens(original.substr(offset+$match.length), 1, '(', ')');
+				return $match;
+			});
+			//shouldnt need this condition, apparently I am getting antsy
+			if (code_to_replace != ''){
+				if (typeof ADW_GLOBALS.onclicks[selector] == "undefined"){
+					ADW_GLOBALS.onclicks[selector] = [];
+					//tag the target with a border
+					tag_element(selector, 'seo_extension_target onclick_tracking');
+				}
+				ADW_GLOBALS.onclicks[selector].push(code_to_replace);
+				//ADW_GLOBALS.inline_calls.push(code_to_replace);
+				handler = handler.replace(code_to_replace, '');
+			}
+		}
 	});//end jquery onclick selector
-/* */
-	/*
-	 * uncomment this to print out the functions and methods found
-	 * /
-	var methods = '', functions = '', callers = '';
-	for (i=0; i<method_calls.length; i++){
-		if (methods != '') methods += ', ';
-		methods += method_calls[i];
-	}
-	for (i=0; i<function_calls.length; i++){
-		if (functions != '') functions += ', ';
-		functions += function_calls[i];
-	}
-	for (i=0; i<function_callers.length; i++){
-		if (callers != '') callers += ', ';
-		callers += find_path(function_callers[i], dom_object, 'temp-dom-wrapper');
-	}
-	status_print('methods: '+methods);
-	status_print('functions: '+functions);
-	status_print('caller selectors: '+callers);
-	/* */
-	return code_to_test;
 }
 
 /*
@@ -217,19 +254,10 @@ function find_inline_handlers(code_to_test, tracking_regex){
  *
  * code_to_test is the trimmed contents of an inline or included script
  */
-function check_for_ua_inclusions(code_to_test){
-	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test, tracking_regex;
-	
-	//split based on call type
-	if (ADW_GLOBALS.tracking_type == 'asynch'){
-		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\.push\(/.source, 'g');
-	}
-	else if(ADW_GLOBALS.tracking_type == 'universal'){
-		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\s*\(/.source, 'g');
-		///\s*\((?:(?:(['"])(?:(?!\2).)*\2)|[^'",]*)\s*(?:,\s*(?:(?:(['"])(?:(?!\3).)*\3)|[^'",]*))+\)/
-	}
+function check_for_ua_inclusions(code_to_test, tracking_regex){
+	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test;
 		
-	//next the fun part - check for functions, test them for tracking, then remove them from the text
+	//the fun part - check for functions, test them for tracking, then remove them from the text
 	//find the number of functions to look for
 	array_length = code_to_test.match(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/g);
 	if (array_length) array_length = array_length.length
@@ -252,46 +280,10 @@ function check_for_ua_inclusions(code_to_test){
 	}
 	
 	//all functions removed, any remaining tracking is inline
-	//@todo need to remove the handlers here
+	//check for remaining inlines here
 	if (trimmed_code.match(tracking_regex)){
-		//inline handlers currently does nothing...
 		find_inline_handlers(trimmed_code, tracking_regex);
-		
-		//ADW_GLOBALS.inline_calls = ADW_GLOBALS.inline_calls.concat(trimmed_code.match(tracking_regex))
 	}
-}
-
-/*
- * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
- * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
- */
-function find_path(item_to_find, dom_object, id_to_ignore){
-	var selector, id, classNames;
-	
-	id_to_ignore = (typeof id_to_ignore != 'undefined') ? id_to_ignore : false;
-
-	id = $(item_to_find, dom_object).attr("id");
-	if (id && id_to_ignore !== false){
-		if (id == id_to_ignore) return '';
-	}
-
-	if ($(item_to_find, dom_object).parent().length){
-		selector = find_path($(item_to_find, dom_object).parent(), dom_object, id_to_ignore);
-	}
-	else selector = '';
-	
-	selector += " "+ $(item_to_find, dom_object)[0].nodeName;
-
-	if (id) { 
-		selector += "#"+ id;
-	}
-
-	classNames = $(item_to_find, dom_object).attr("class");
-	if (classNames) {
-		selector += "." + $.trim(classNames).replace(/\s/gi, ".");
-	}
-
-	return selector;
 }
 
 function get_external_script(external_url, f){
@@ -344,11 +336,11 @@ function parse_script(code_to_test, f){
 	/////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
 	//strip the comments from the js.  we dont need no stinkin comments!
 	/* */
-	code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, offset, original){
+	code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, offset, original){
 		if (typeof $1 != 'undefined') return $1;
 		if (typeof $5 != 'undefined') return $match.replace($5,'');
-		if (typeof $6 != 'undefined') return $match.replace($6,'');
-		if (typeof $7 != 'undefined') return $match.replace($7,'');
+		if (typeof $6 != 'undefined') return $match.replace($6,$7);
+		if (typeof $8 != 'undefined') return $match.replace($8,$9);
 		return '';
 	});
 	/* */
@@ -450,16 +442,29 @@ function find_scripts(temp_dom, current_url, f){
  * @todo - number of each kind of element on the page
  */
 function eval_current_page_helper(temp_dom){
-	var i;
+	var i, tracking_regex;
 	/////status_print('in the eval current page helper');
+	
+	//split based on call type
+	if (ADW_GLOBALS.tracking_type == 'asynch'){
+		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\.push\(/.source, 'g');
+	}
+	else if(ADW_GLOBALS.tracking_type == 'universal'){
+		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\s*\(/.source, 'g');
+	}
+	
 	//grab all the inline handlers
 	//find_inline_handlers(temp_dom);
 	//parse the scripts
 	$.each(ADW_GLOBALS.scripts_content, function(){
 		/////console.log(this.toString());
-		check_for_ua_inclusions(this.toString());
+		check_for_ua_inclusions(this.toString(), tracking_regex);
 	});
-/* */
+	
+	//check the dom for onclicks
+	find_onclick_handlers(temp_dom, tracking_regex)
+	
+	
 	//parse em again, but this time look for the functions
 	if (ADW_GLOBALS.matched_functions.length){
 		$.each(ADW_GLOBALS.matched_functions, function(){
@@ -469,11 +474,15 @@ function eval_current_page_helper(temp_dom){
 	$.each(ADW_GLOBALS.selector_to_function, function(index, value){
 		if (!$(index, temp_dom).length)delete ADW_GLOBALS.selector_to_function[index]
 	});
-/* */
+	
 	//function calls print
 	ADW_GLOBALS.selector_to_function = clean_array('', ADW_GLOBALS.selector_to_function);
-	if (ADW_GLOBALS.selector_to_function.length != 0)status_print(ADW_GLOBALS.selector_to_function);
-	else status_print('No function calls found')
+	if (!jQuery.isEmptyObject(ADW_GLOBALS.selector_to_function))status_print(jQuery.extend({'Function Calls' : ''},ADW_GLOBALS.selector_to_function), 'status', true);
+	else status_print('No function calls with tracking found', 'warning')
+	
+	//onclick prints
+	if (!jQuery.isEmptyObject(ADW_GLOBALS.onclicks))status_print(ADW_GLOBALS.onclicks);
+	else status_print('No onclick handlers with tracking found', 'warning')
 	
 	//inline items print
 	ADW_GLOBALS.inline_calls = clean_array('', ADW_GLOBALS.inline_calls);
@@ -503,9 +512,8 @@ function clean_array(delete_value, array_to_parse){
 function eval_current_page() {
 	var tab_url, xmlhttp, temp_dom;
 	chrome.tabs.getSelected(null, function(tab){
-		//sendMessage(integer tabId, any message, function responseCallback)
 		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getDocument"}, function(response) {
-			if(response.method=="returnDocument"){
+			if(typeof response.method != "undefined" && response.method=="returnDocument"){
 				temp_dom = document.createElement('div');
 				$(temp_dom).attr('id', 'temp-dom-wrapper');
 				temp_dom.innerHTML = response.data;
