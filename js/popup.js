@@ -32,7 +32,7 @@ ADW_GLOBALS.regex_of_doom = new RegExp(
 /*
  * helper function to print statuses in a pretty manner (to clarify: manner being a behavior, not manor: a large house)
  */
-function status_print(content, message_type, add_link){
+function status_print(content, message_type){
 	var to_output = '', i;
 	add_link = typeof add_link != "undefined" ? add_link : false;
 	if( Object.prototype.toString.call( content ) === '[object Array]' ) {
@@ -42,7 +42,7 @@ function status_print(content, message_type, add_link){
 	}
 	else if ( Object.prototype.toString.call( content ) === '[object Object]' ) {
 		$.each(content, function(index, value){
-			to_output = to_output + '<div class="selector_wrapper"><span class="selector">' + index + '</span>' + (add_link && value != '' ? ' <input type="button" class="scrollTo" value="Scroll to Element">' : '') + "\n  " + value + "\n";
+			to_output = to_output + index + "\n  " + value + "</div>";
 		});
 	}
 	else to_output = content
@@ -55,9 +55,6 @@ function status_print(content, message_type, add_link){
 	div.appendChild(pre);
 	document.getElementsByTagName('h2')[0].parentNode.appendChild(div);
 	//add the inline handler
-	jQuery('input.scrollTo').click(function(){
-		scrollto_element(jQuery(this).siblings('.selector').html());
-	});
 }
 
 /*
@@ -120,9 +117,18 @@ function find_path(item_to_find, dom_object, id_to_ignore){
 	return selector;
 }
 
-function scrollto_element(target) {
+function scrollto_element(target, index) {
 	chrome.tabs.getSelected(null, function(tab){
-		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "scrollTo", target: target, windowHeight: jQuery(window).height()});
+		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "scrollTo", target: target, index: index, windowHeight: jQuery(window).height()}, function(response){
+			if (response.status == "invisible"){
+				jQuery('input[data-selector="' + response.target + '"][data-index="' + response.index + '"]').after('<div class="error inline">Element is not currently Visible</div>');
+				setTimeout(function(){
+					jQuery('input[data-selector="' + response.target + '"][data-index="' + response.index + '"]').siblings('.error.inline').animate({opacity : 0}, 300, "linear", function(){
+						jQuery('input[data-selector="' + response.target + '"][data-index="' + response.index + '"]').siblings('.error.inline').remove();
+					});
+				}, 500);
+			}
+		});
 	});
 }
 
@@ -432,6 +438,34 @@ function find_scripts(temp_dom, current_url, f){
 	});//end of .each
 }
 
+function build_function_calls(temp_dom, function_object){
+	var returnVal = '<h3>Function Calls</h3>',
+			i;
+	
+	$.each(function_object, function(index, value){
+		returnVal = returnVal + '<div class="selector_wrapper"><div class="selector">' + index + '</div><span class="iconWrapper"><span class="icon"></span></span><div class="scrollToWrapper">';
+		for (i=0; i<jQuery(index, temp_dom).length; i++){
+			returnVal = returnVal + '<input type="button" class="scrollTo" value="Scroll to Element ' + (i + 1) + '" data-selector="' + index + '" data-index="' + i + '">';
+		}
+		returnVal = returnVal + '</div><div class="functionCall">' + value + '</div>' + '</div>';
+	});
+	
+	return returnVal;
+}
+
+function toggle_inputs(target){
+	var toggleTarget = jQuery(target).parent('.iconWrapper').siblings('.scrollToWrapper');
+	jQuery(toggleTarget).stop(true, true);
+	if (jQuery(toggleTarget).hasClass('open')){
+		jQuery(toggleTarget).removeClass('open');
+		jQuery(toggleTarget).hide(400);
+	}
+	else{
+		jQuery(toggleTarget).addClass('open');
+		jQuery(toggleTarget).show(400);
+	}
+}
+
 /*
  * takes resources found earlier and parses them
  * looks for inline handlers and function calls that associate with GA calls
@@ -442,7 +476,7 @@ function find_scripts(temp_dom, current_url, f){
  * @todo - number of each kind of element on the page
  */
 function eval_current_page_helper(temp_dom){
-	var i, tracking_regex;
+	var i, tracking_regex, temp_content;
 	/////status_print('in the eval current page helper');
 	
 	//split based on call type
@@ -477,7 +511,15 @@ function eval_current_page_helper(temp_dom){
 	
 	//function calls print
 	ADW_GLOBALS.selector_to_function = clean_array('', ADW_GLOBALS.selector_to_function);
-	if (!jQuery.isEmptyObject(ADW_GLOBALS.selector_to_function))status_print(jQuery.extend({'Function Calls' : ''},ADW_GLOBALS.selector_to_function), 'status', true);
+	if (!jQuery.isEmptyObject(ADW_GLOBALS.selector_to_function)){
+		temp_content = build_function_calls(temp_dom, ADW_GLOBALS.selector_to_function);
+		status_print(temp_content, 'status');
+		
+		jQuery('input.scrollTo').click(function(){
+			scrollto_element(jQuery(this).attr('data-selector'), (typeof jQuery(this).attr('data-index') != "undefined" ? jQuery(this).attr('data-index') : 0));
+		});
+		jQuery('span.icon').click(function(){toggle_inputs(this);});
+	}
 	else status_print('No function calls with tracking found', 'warning')
 	
 	//onclick prints

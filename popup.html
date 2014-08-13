@@ -8,6 +8,7 @@
         overflow-x: hidden;
       }
 			div.message{
+				clear:both;
 				border: 1px solid;
 				margin: 6px 0;
 				padding: 10px;
@@ -16,6 +17,12 @@
 				background-color: #fef5f1;
 				color: #8c2e0b;
 				border-color: #ed541d;
+			}
+			div.error.inline{
+				float: left;
+				margin-left: 20px;
+				padding: 3px;
+				border: 1px solid red;
 			}
 			div.warning {
 				background-color: #fffce5;
@@ -26,6 +33,43 @@
 				background-color: #f8fff0;
 				color: #234600;
 				border-color: #be7;
+			}
+			
+			div.selector{
+				float:left;
+				width:100%;
+			}
+			
+			div.functionCall{
+				word-wrap: break-word;
+				margin: 0 0 20px 15px;
+				clear: both;
+			}
+			
+			span.iconWrapper{
+				position: relative;
+			}
+			span.icon{
+				width: 14px;
+				height: 14px;
+				cursor: pointer;
+				background-repeat: no-repeat;
+				background-position: center center;
+				position: absolute;
+				right: 30px;
+				top: 1px;
+				background-image: url('../toggle-collapsed.png');
+			}
+			span.icon.open{
+				background-image: url('../toggle-expanded.png');
+			}
+			
+			input.scrollTo{
+				clear: both;
+				float: left;
+			}
+			div.scrollToWrapper{
+				display:none;
 			}
     </style>
 

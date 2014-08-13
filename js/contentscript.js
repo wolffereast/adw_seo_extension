@@ -31,15 +31,20 @@ chrome.runtime.onMessage.addListener(
 					return false;
 					break;
 				case 'scrollTo':
-					jQuery('.seo_extension_selected').removeClass('seo_extension_selected');
-					jQuery(message.target).addClass('seo_extension_selected');
-					var scrollTop = '';
-					if (message.windowHeight < jQuery(window).outerHeight()) scrollTop = (jQuery(window).outerHeight() + message.windowHeight) / 2;
-					else scrollTop = jQuery(window).outerHeight() / 2;
-					
-					//we want the item halfway up the screen, hence - outer height /2
-					$('html, body').animate({scrollTop: (jQuery(message.target).offset().top - scrollTop) + 'px'}, 'fast');
-					return false;
+					if (!jQuery(jQuery(message.target)[message.index]).is(':visible')){
+						sendResponse({target: message.target, index: message.index, status: 'invisible', method: "scrollTo"});
+					}
+					else{
+						jQuery('.seo_extension_selected').removeClass('seo_extension_selected');
+						jQuery(jQuery(message.target)[message.index]).addClass('seo_extension_selected');
+						var scrollTop = '';
+						if (message.windowHeight < jQuery(window).outerHeight()) scrollTop = (jQuery(window).outerHeight() + message.windowHeight) / 2;
+						else scrollTop = jQuery(window).outerHeight() / 2;
+						
+						//we want the item halfway up the screen, hence - outer height /2
+						$('html, body').animate({scrollTop: (jQuery(jQuery(message.target)[message.index]).offset().top - scrollTop) + 'px'}, 'fast');
+						return false;
+					}
 					break;
 			}
 		}
