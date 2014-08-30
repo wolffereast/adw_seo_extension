@@ -29,7 +29,7 @@ ADW_GLOBALS.regex_of_doom = new RegExp(
 );
 
 /*
- * helper function to print statuses in a pretty manner
+ * helper function to print statuses in a pretty manner (to clarify: manner being a behavior, not a large house)
  */
 function status_print(content, message_type){
 	var to_output = '', i;
@@ -40,7 +40,7 @@ function status_print(content, message_type){
 	}
 	else if ( Object.prototype.toString.call( content ) === '[object Object]' ) {
 		$.each(content, function(index, value){
-			to_output = to_output + index + ' : ' + value + "\n";
+			to_output = to_output + index + "\n  " + value + "\n";
 		});
 	}
 	else to_output = content
@@ -59,7 +59,7 @@ function status_print(content, message_type){
  */
 function match_parens(code_to_test, level, opening, closing){
 	var sub_match, matched;
-	return code_to_test.replace(new RegExp('^((?:(?!['+opening+closing+']).)*(['+opening+closing+']))[\\s\\S]*$'), function(full_match, matched, $2, offset, original){
+	return code_to_test.replace(new RegExp('^([^'+opening+closing+']*(['+opening+closing+']))[\\s\\S]*$'), function(full_match, matched, $2, offset, original){
 /* * /
 		status_print('full_match: '+full_match);
 		status_print('level: '+level);
@@ -97,7 +97,7 @@ function check_for_function_inclusions(function_title){
 		num_events = trimmed_code.match(temp_function_regex);
 		//if it does get the number of event handlers
 		if (num_events){
-			num_events = trimmed_code.match(/(?:jQuery|\$)\(([^)]*)\)\.click\(\s*function\s*\(([^)]*)\)\s*[\n\r]*{[^{}]*(.)(?:\);)?/g);
+			num_events = trimmed_code.match(/(?:jQuery|\$)\(([^)]*)\)\.click\(\s*function\s*\([^)]*\)\s*[\n\r]*{[^{}]*(.)(?:\);)?/g);
 			if (num_events) num_events = num_events.length
 			else num_events = 0;
 		}
@@ -106,10 +106,12 @@ function check_for_function_inclusions(function_title){
 		//grab and test all the event handlers
 		for (i=0; i < num_events; i++){
 			/////status_print(trimmed_code);
-			trimmed_code.replace(/(?:jQuery|\$)\(([^)]*)\)\.click\(\s*function\s*\(([^)]*)\)\s*[\n\r]*{[^{}]*(.)(?:\);)?/,function($match, $1, $2, $3, offset, original){
-				//level 2, as we just matched the second opening
-				if ($3 == '{') code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
-				else code_to_replace = $match;
+			trimmed_code.replace(/(?:jQuery|\$)\(([^)]*)\)\.click\(\s*function\s*\([^)]*\)\s*[\n\r]*{/,function($match, $1, offset, original){
+				//level 1, only the opening { has been matched, we want to close the .click, so matching the )
+				/////status_print('original match: '+$match)
+				/////status_print('arg sent to match parens: '+ original.substr(offset+$match.length));
+				code_to_replace = $match + match_parens(original.substr(offset+$match.length), 1, '(', ')');
+				/////status_print('CODE TO REPLACE: '+code_to_replace);
 				temp_selector = $1;
 				return $match
 			})
@@ -220,7 +222,7 @@ function check_for_ua_inclusions(code_to_test){
 	
 	//split based on call type
 	if (ADW_GLOBALS.tracking_type == 'asynch'){
-		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\.push\([^()]*(?:\(|\))/.source, 'g');
+		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\.push\(/.source, 'g');
 	}
 	else if(ADW_GLOBALS.tracking_type == 'universal'){
 		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\s*\(/.source, 'g');
@@ -509,8 +511,9 @@ function eval_current_page() {
 				temp_dom.innerHTML = response.data;
 				
 				find_scripts(temp_dom, tab.url, function(){
-					/////status_print('finished with find scripts');
-					eval_current_page_helper(temp_dom);
+					//no need to evaluate further if no tracking code is found
+					if (ADW_GLOBALS.account_num != '')eval_current_page_helper(temp_dom);
+					else status_print('No tracking found', 'error');
 				});
 			}
     });
