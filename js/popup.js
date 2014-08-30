@@ -59,8 +59,13 @@ function status_print(content, message_type){
  */
 function match_parens(code_to_test, level, opening, closing){
 	var sub_match, matched;
-	return code_to_test.replace(new RegExp('^([^'+opening+closing+']*(.))[\\s\\S]*$'), function(full_match, matched, $2, offset, original){
-		/////status_print('$2 = ' + $2)
+	return code_to_test.replace(new RegExp('^((?:(?!['+opening+closing+']).)*(['+opening+closing+']))[\\s\\S]*$'), function(full_match, matched, $2, offset, original){
+/* * /
+		status_print('full_match: '+full_match);
+		status_print('level: '+level);
+		status_print('matched = ' + matched)
+		status_print('$2 = ' + $2)
+/* */
 		if ($2 == opening){
 			sub_match = match_parens(original.substr(offset+matched.length), level + 1, opening, closing);
 			/////status_print('in match parens if with level of ' + level + ' and match of ' + matched + ' and a sub match of ' + sub_match);
@@ -102,6 +107,7 @@ function check_for_function_inclusions(function_title){
 		for (i=0; i < num_events; i++){
 			/////status_print(trimmed_code);
 			trimmed_code.replace(/(?:jQuery|\$)\(([^)]*)\)\.click\(\s*function\s*\(([^)]*)\)\s*[\n\r]*{[^{}]*(.)(?:\);)?/,function($match, $1, $2, $3, offset, original){
+				//level 2, as we just matched the second opening
 				if ($3 == '{') code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
 				else code_to_replace = $match;
 				temp_selector = $1;
@@ -116,6 +122,7 @@ function check_for_function_inclusions(function_title){
 			//now, parse the event to pull out the function we are looking for
 			for (j=0; j < num_funcs; j++){
 				code_to_replace.replace(new RegExp(function_title+'\\s*\\([^()]*(.)'), function($match, $1, offset, original){
+					//level 2, as we just matched the second opening
 					if ($1 == '(')sub_code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '(', ')');
 					else sub_code_to_replace = $match
 					return $match;
@@ -132,10 +139,27 @@ function check_for_function_inclusions(function_title){
 }
 
 function find_inline_handlers(code_to_test, tracking_regex){
+/* * /
 	var component_array = [], handler, parts, part, method_object, i, j,
 			function_regex = /^([a-zA-Z0-9\s_.-]+)\([^)]*\)$/,
 			method_regex = /^.*\.([^.]*)$/;
-			
+/* */
+	var num_calls = 0, i=0, code_to_replace = '';
+	
+	num_calls = code_to_test.match(tracking_regex).length;
+	for (i=0;i<num_calls; i++){
+		code_to_replace = '';
+		code_to_test.replace(tracking_regex, function($match, offset, original){
+			//level 1, as we only have the opening paren so far
+			code_to_replace = $match + match_parens(original.substr(offset+$match.length), 1, '(', ')');
+			return $match;
+		});
+		//shouldnt need this condition, apparently I am getting antsy
+		if (code_to_replace != ''){
+			ADW_GLOBALS.inline_calls.push(code_to_replace);
+			code_to_test = code_to_test.replace(code_to_replace, '');
+		}
+	}
 /* * /
 	$('[onclick]', dom_object).each(function(){
 		handler = $(this).attr('onclick');
@@ -196,10 +220,11 @@ function check_for_ua_inclusions(code_to_test){
 	
 	//split based on call type
 	if (ADW_GLOBALS.tracking_type == 'asynch'){
-		tracking_regex = new RegExp('('+ADW_GLOBALS.caller+/\.push\([^()]*(?:\(|\))/.source+')', 'g');
+		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\.push\([^()]*(?:\(|\))/.source, 'g');
 	}
 	else if(ADW_GLOBALS.tracking_type == 'universal'){
-		tracking_regex = new RegExp('('+ADW_GLOBALS.caller+/\s*\((?:(?:(['"])(?:(?!\2).)*\2)|[^'",]*)\s*(?:,\s*(?:(?:(['"])(?:(?!\3).)*\3)|[^'",]*))+\)/.source+')', 'g');
+		tracking_regex = new RegExp(ADW_GLOBALS.caller+/\s*\(/.source, 'g');
+		///\s*\((?:(?:(['"])(?:(?!\2).)*\2)|[^'",]*)\s*(?:,\s*(?:(?:(['"])(?:(?!\3).)*\3)|[^'",]*))+\)/
 	}
 		
 	//next the fun part - check for functions, test them for tracking, then remove them from the text
@@ -210,6 +235,7 @@ function check_for_ua_inclusions(code_to_test){
 	
 	for (i=0; i < array_length; i++){
 		trimmed_code.replace(/function\s*([^\s(]+)\s*\([^)]+\)\s*[\n\r]?\s*{[^{}]*([{}])/,function($match, $1, $2, offset, original){
+			//level 2, as we just matched the second opening
 			if ($2 == '{')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
 			else code_to_replace = $match
 			//great, we have the full function, now does it contain the regex?
@@ -226,9 +252,10 @@ function check_for_ua_inclusions(code_to_test){
 	//all functions removed, any remaining tracking is inline
 	//@todo need to remove the handlers here
 	if (trimmed_code.match(tracking_regex)){
-		trimmed_code = find_inline_handlers(trimmed_code, tracking_regex);
+		//inline handlers currently does nothing...
+		find_inline_handlers(trimmed_code, tracking_regex);
 		
-		ADW_GLOBALS.inline_calls = ADW_GLOBALS.inline_calls.concat(trimmed_code.match(tracking_regex))
+		//ADW_GLOBALS.inline_calls = ADW_GLOBALS.inline_calls.concat(trimmed_code.match(tracking_regex))
 	}
 }
 
