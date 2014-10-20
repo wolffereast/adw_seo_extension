@@ -555,7 +555,7 @@ function eval_current_page() {
 	var tab_url, xmlhttp, temp_dom;
 	chrome.tabs.getSelected(null, function(tab){
 		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getDocument"}, function(response) {
-			if(typeof response.method != "undefined" && response.method=="returnDocument"){
+			if(typeof response != "undefined" && typeof response.method != "undefined" && response.method=="returnDocument"){
 				temp_dom = document.createElement('div');
 				$(temp_dom).attr('id', 'temp-dom-wrapper');
 				temp_dom.innerHTML = response.data;
