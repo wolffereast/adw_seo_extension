@@ -146,6 +146,7 @@ function check_for_function_inclusions(function_title){
 	var trimmed_code, num_events, num_funcs, code_to_replace, sub_code_to_replace, i, j, temp_function_regex, temp_selector;
 	
 	temp_function_regex = new RegExp(function_title+'\\s*\\([^()]*(.)', 'g')
+	status_print(temp_function_regex.source)
 	
 	if (jQuery('.print_functions:checked').length) status_print('looking for ' + function_title)
 	//first try at this?  lets grab all the event handlers
@@ -233,6 +234,8 @@ function find_onclick_handlers(dom_object, tracking_regex){
 		handler = $(this).attr('onclick');
 		selector = find_path(this, dom_object, 'temp-dom-wrapper');
 		
+		////status_print("Handler: " + handler + " -- tracking_regex: " + tracking_regex);
+		
 		while(handler.match(tracking_regex) !== null){
 			code_to_replace = '';
 			handler.replace(tracking_regex, function($match, offset, original){
@@ -275,7 +278,11 @@ function check_for_ua_inclusions(code_to_test, tracking_regex){
 			if ($2 == '{')code_to_replace = $match + match_parens(original.substr(offset+$match.length), 2, '{', '}');
 			else code_to_replace = $match
 			//great, we have the full function, now does it contain the regex?
-			if ($match.match(tracking_regex)){
+			////status_print(code_to_replace)
+			////status_print(tracking_regex)
+			
+			if (code_to_replace.match(tracking_regex)){
+				////status_print("matched " + code_to_replace)
 				ADW_GLOBALS.matched_functions.push($1);
 				/////status_print($match)
 				/////status_print($1)
@@ -500,11 +507,15 @@ function eval_current_page_helper(temp_dom){
 	//check the dom for onclicks
 	find_onclick_handlers(temp_dom, tracking_regex)
 	
+	//@TODO - recursively check functions to see if a function calls the function calling the ga... etc
 	
 	//parse em again, but this time look for the functions
 	if (ADW_GLOBALS.matched_functions.length){
 		$.each(ADW_GLOBALS.matched_functions, function(){
 			check_for_function_inclusions(this);
+			//also need to check if the functions are in an onclick
+			temp_function_regex = new RegExp(this+'\\s*\\([^()]*', 'g')
+			find_onclick_handlers(temp_dom, temp_function_regex)
 		});
 	}
 	$.each(ADW_GLOBALS.selector_to_function, function(index, value){
