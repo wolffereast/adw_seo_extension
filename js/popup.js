@@ -317,7 +317,7 @@ function get_external_script(external_url, f){
  */
 function parse_script(code_to_test, f){
 	var xmlhttp, results,
-			univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*(['"])[a-zA-Z0-9]+\5\s*\)/i,
+			univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*,\s*{?(['"])[a-zA-Z0-9]+\5\s*}?\)/i,
 			asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
 			
 	f = (typeof f != "undefined") ? f : false;
