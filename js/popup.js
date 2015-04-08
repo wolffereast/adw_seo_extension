@@ -146,7 +146,7 @@ function check_for_function_inclusions(function_title){
 	var trimmed_code, num_events, num_funcs, code_to_replace, sub_code_to_replace, i, j, temp_function_regex, temp_selector;
 	
 	temp_function_regex = new RegExp(function_title+'\\s*\\([^()]*(.)', 'g')
-	status_print(temp_function_regex.source)
+	////status_print(temp_function_regex.source)
 	
 	if (jQuery('.print_functions:checked').length) status_print('looking for ' + function_title)
 	//first try at this?  lets grab all the event handlers
@@ -536,7 +536,19 @@ function eval_current_page_helper(temp_dom){
 	else status_print('No function calls with tracking found', 'warning')
 	
 	//onclick prints
-	if (!jQuery.isEmptyObject(ADW_GLOBALS.onclicks))status_print(ADW_GLOBALS.onclicks);
+	if (!jQuery.isEmptyObject(ADW_GLOBALS.onclicks)){
+		tempVal = "Inline Onclick Handlers\r\n";
+		for (var key in ADW_GLOBALS.onclicks){
+			if (ADW_GLOBALS.onclicks.hasOwnProperty(key)) {
+				tempVal += key + "\r\n";
+				for (var i = 0; i < jQuery(ADW_GLOBALS.onclicks[key]).length; i++){
+					tempVal += "&nbsp;&nbsp" + ADW_GLOBALS.onclicks[key][i] + "\r\n";
+				}
+			}
+		}
+		
+		status_print(tempVal);
+	}
 	else status_print('No onclick handlers with tracking found', 'warning')
 	
 	//inline items print
