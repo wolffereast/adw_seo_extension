@@ -6,7 +6,6 @@ ADW_GLOBALS = {
 	num_scripts : 0,
 	num_executed : 0,
 	scripts_content : [],
-	matched_functions : [],
 	inline_calls : [],
 	onclicks : {},
 	selector_to_function : {},
@@ -28,6 +27,13 @@ ADW_GLOBALS.regex_of_doom = new RegExp(
 	'(\\.(?:exec|test|match|search|replace|split))\\(' + ADW_GLOBALS.regex_literal.source + '[gimy]?)|' + //end 8, 9
 	ADW_GLOBALS.html_comments.source + ')' , 'g'//10
 );
+
+//class ish
+//this is used by the check for ua inclusions function to return stripped code and found functions
+var UaRetvalWrapper = function(strippedCode, foundFunctions){
+	this.strippedCode = strippedCode;
+	this.foundFunctions = foundFunctions;
+}
 
 /*
  * helper function to print statuses in a pretty manner (to clarify: manner being a behavior, not manor: a large house)
@@ -209,6 +215,11 @@ function find_inline_handlers(code_to_test, tracking_regex){
 			method_regex = /^.*\.([^.]*)$/;
 /* */
 	var num_calls = 0, i=0, code_to_replace = '';
+	//if there are no matches
+	if (code_to_test.match(tracking_regex) == null){
+		status_print('no matches');
+		return false;
+	}
 	
 	num_calls = code_to_test.match(tracking_regex).length;
 	for (i=0;i<num_calls; i++){
@@ -224,7 +235,7 @@ function find_inline_handlers(code_to_test, tracking_regex){
 			code_to_test = code_to_test.replace(code_to_replace, '');
 		}
 	}
-	return code_to_test;
+	return true;
 }
 
 function find_onclick_handlers(dom_object, tracking_regex){
@@ -264,7 +275,7 @@ function find_onclick_handlers(dom_object, tracking_regex){
  * code_to_test is the trimmed contents of an inline or included script
  */
 function check_for_ua_inclusions(code_to_test, tracking_regex){
-	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test;
+	var has_target, matching = true, matched_code = [], code_to_replace, i, array_length, trimmed_code = code_to_test, matched_funcs = [], retVal;
 		
 	//the fun part - check for functions, test them for tracking, then remove them from the text
 	//find the number of functions to look for
@@ -283,7 +294,7 @@ function check_for_ua_inclusions(code_to_test, tracking_regex){
 			
 			if (code_to_replace.match(tracking_regex)){
 				////status_print("matched " + code_to_replace)
-				ADW_GLOBALS.matched_functions.push($1);
+				matched_funcs.push($1);
 				/////status_print($match)
 				/////status_print($1)
 			}
@@ -294,9 +305,8 @@ function check_for_ua_inclusions(code_to_test, tracking_regex){
 	
 	//all functions removed, any remaining tracking is inline
 	//check for remaining inlines here
-	if (trimmed_code.match(tracking_regex)){
-		find_inline_handlers(trimmed_code, tracking_regex);
-	}
+	retVal = new UaRetvalWrapper(trimmed_code, matched_funcs);
+	return retVal;
 }
 
 function get_external_script(external_url, f){
@@ -485,7 +495,7 @@ function toggle_inputs(target){
  * @todo - number of each kind of element on the page
  */
 function eval_current_page_helper(temp_dom){
-	var i, tracking_regex, temp_content;
+	var i, tracking_regex, temp_content, retVal, matched_functions = [],current_function, inner_current_function;
 	/////status_print('in the eval current page helper');
 	
 	//split based on call type
@@ -501,20 +511,62 @@ function eval_current_page_helper(temp_dom){
 	//parse the scripts
 	$.each(ADW_GLOBALS.scripts_content, function(){
 		/////console.log(this.toString());
-		check_for_ua_inclusions(this.toString(), tracking_regex);
+		retVal = check_for_ua_inclusions(this.toString(), tracking_regex);
+		
+		matched_functions = matched_functions.concat(retVal.foundFunctions);
+		
+		//moved the find_inline_handlers function here
+		if (retVal.strippedCode.match(tracking_regex)){
+			find_inline_handlers(retVal.strippedCode, tracking_regex);
+		}
 	});
 	
 	//check the dom for onclicks
 	find_onclick_handlers(temp_dom, tracking_regex)
-	
-	//@TODO - recursively check functions to see if a function calls the function calling the ga... etc
-	
+		
 	//parse em again, but this time look for the functions
-	if (ADW_GLOBALS.matched_functions.length){
-		$.each(ADW_GLOBALS.matched_functions, function(){
+	if (matched_functions.length){
+		//first, check if there are any functions that call the function - recursion ftw!
+		var checked = [];
+		var to_check = matched_functions;
+		
+		while (to_check.length){
+			current_function = to_check.pop();
+			//add the most recent function to the checked array
+			checked.push(current_function);
+			
+			////status_print('checking ' + current_function);
+			
+			temp_function_regex = new RegExp(current_function+'\\s*\\([^()]*', 'g')
+			////status_print(temp_function_regex.source);
+			////status_print('number of scripts: ' + ADW_GLOBALS.scripts_content.length)
+			
+			$.each(ADW_GLOBALS.scripts_content, function(){
+				retVal = check_for_ua_inclusions(this.toString(), temp_function_regex);
+				while(retVal.foundFunctions.length){
+					inner_current_function= retVal.foundFunctions.pop();
+					//if it isnt in checked or to_check add it to to_check
+					if (checked.indexOf(inner_current_function) == -1 && to_check.indexOf(inner_current_function) == -1){
+						////status_print('found ' + inner_current_function + '. adding it to to_check');
+						to_check.push(inner_current_function);
+					}
+				}
+				
+				//check for inline usage
+				if (retVal.strippedCode.match(temp_function_regex)){
+					////status_print(retVal.strippedCode)
+					find_inline_handlers(retVal.strippedCode, temp_function_regex);
+				}
+			});
+		}
+		
+		matched_functions = checked;
+		
+		$.each(matched_functions, function(){
 			check_for_function_inclusions(this);
 			//also need to check if the functions are in an onclick
 			temp_function_regex = new RegExp(this+'\\s*\\([^()]*', 'g')
+			
 			find_onclick_handlers(temp_dom, temp_function_regex)
 		});
 	}
