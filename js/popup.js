@@ -39,28 +39,29 @@ var UaRetvalWrapper = function(strippedCode, foundFunctions){
  * helper function to print statuses in a pretty manner (to clarify: manner being a behavior, not manor: a large house)
  */
 function status_print(content, message_type){
-	var to_output = '', i;
-	add_link = typeof add_link != "undefined" ? add_link : false;
-	if( Object.prototype.toString.call( content ) === '[object Array]' ) {
-		for (i = 0; i < content.length; i++){
-			to_output = to_output + content[i] + "\n";
-		}
-	}
-	else if ( Object.prototype.toString.call( content ) === '[object Object]' ) {
-		$.each(content, function(index, value){
-			to_output = to_output + index + "\n  " + value + "</div>";
-		});
-	}
-	else to_output = content
+  var to_output = '', i,
+      pre = document.createElement('pre'),
+      div = document.createElement("div");
 
-	message_type = message_type || 'status';
-	var pre = document.createElement('pre');
-	var div = document.createElement("div");
-	div.setAttribute('class','message ' + message_type);
-	jQuery(pre).html(to_output);
-	div.appendChild(pre);
-	document.getElementsByTagName('h2')[0].parentNode.appendChild(div);
-	//add the inline handler
+  add_link = typeof add_link != "undefined" ? add_link : false;
+
+  if( Object.prototype.toString.call( content ) === '[object Array]' ) {
+    for (i = 0; i < content.length; i++){
+      to_output = to_output + content[i] + "\n";
+    }
+  }
+  else if ( Object.prototype.toString.call( content ) === '[object Object]' ) {
+    $.each(content, function(index, value){
+      to_output = to_output + index + "\n  " + value + "</div>";
+    });
+  }
+  else to_output = content
+
+  message_type = message_type || 'status';
+  div.setAttribute('class','message ' + message_type);
+  jQuery(pre).html(to_output);
+  div.appendChild(pre);
+  document.getElementsByTagName('h2')[0].parentNode.appendChild(div);
 }
 
 /*
