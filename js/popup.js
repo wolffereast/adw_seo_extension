@@ -124,6 +124,9 @@ function find_path(item_to_find, dom_object, id_to_ignore){
   return selector;
 }
 
+/*
+ * scrolls the current window to a targeted element
+ */
 function scrollto_element(target, index) {
   chrome.tabs.getSelected(null, function(tab){
     chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "scrollTo", target: target, index: index, windowHeight: jQuery(window).height()}, function(response){
@@ -139,12 +142,14 @@ function scrollto_element(target, index) {
   });
 }
 
+/*
+ * highlights a targeted element in the current window
+ */
 function tag_element(target, newClass) {
   chrome.tabs.getSelected(null, function(tab){
     chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "tagClass", target: target, newClass: newClass});
   });
 }
-
 
 /*
  * function to look for function calls
@@ -473,6 +478,9 @@ function build_function_calls(temp_dom, function_object){
   return returnVal;
 }
 
+/*
+ * onclick bind used to help with the function call prints
+ */
 function toggle_inputs(target){
   var toggleTarget = jQuery(target).parent('.iconWrapper').siblings('.scrollToWrapper');
   jQuery(toggleTarget).stop(true, true);
@@ -610,6 +618,9 @@ function eval_current_page_helper(temp_dom){
   status_print('Testing Complete', 'warning')
 }
 
+/*
+ * removes all instances of delete_value from array_to_parse
+ */
 function clean_array(delete_value, array_to_parse){
   var i;
   for (i = 0; i < array_to_parse.length; i++) {
@@ -648,6 +659,9 @@ function eval_current_page() {
   });
 }
 
+/*
+ * set things in motion on click
+ */
 document.addEventListener('DOMContentLoaded', function () {
   $('button#reload-button').click(eval_current_page);
 });
