@@ -28,11 +28,35 @@ ADW_GLOBALS.regex_of_doom = new RegExp(
   ADW_GLOBALS.html_comments.source + ')' , 'g'//10
 );
 
-//class ish
+/**************************************************/
+/*                 Data Structures                */
+/**************************************************/
+
+
 //this is used by the check for ua inclusions function to return stripped code and found functions
 var UaRetvalWrapper = function(strippedCode, foundFunctions){
   this.strippedCode = strippedCode;
   this.foundFunctions = foundFunctions;
+}
+
+/**************************************************/
+/*                Helper Functions                */
+/**************************************************/
+
+/*
+ * onclick bind used to help with the function call prints
+ */
+function toggle_inputs(target){
+  var toggleTarget = jQuery(target).parent('.iconWrapper').siblings('.scrollToWrapper');
+  jQuery(toggleTarget).stop(true, true);
+  if (jQuery(toggleTarget).hasClass('open')){
+    jQuery(toggleTarget).removeClass('open');
+    jQuery(toggleTarget).hide(400);
+  }
+  else{
+    jQuery(toggleTarget).addClass('open');
+    jQuery(toggleTarget).show(400);
+  }
 }
 
 /*
@@ -92,6 +116,21 @@ function match_parens(code_to_test, level, opening, closing){
 }
 
 /*
+ * helper function that removes all instances of delete_value from array_to_parse
+ */
+function clean_array(delete_value, array_to_parse){
+  var i;
+  for (i = 0; i < array_to_parse.length; i++) {
+    if (array_to_parse[i] == '') {
+      array_to_parse.splice(i, 1);
+      i--;
+    }
+  }
+  return array_to_parse;
+}
+
+/*
+ * helper function that returns a selector for a specific element
  * This function is adapted from code found on stackoverflow.  originally submitted by jessegavin
  * The post can be found here: http://stackoverflow.com/questions/2420970/how-can-i-get-selector-from-jquery-object
  */
@@ -125,6 +164,28 @@ function find_path(item_to_find, dom_object, id_to_ignore){
 }
 
 /*
+ * helper function to format a set of functions in preperation for output
+ */
+function build_function_calls(temp_dom, function_object){
+  var returnVal = '<h3>Function Calls</h3>',
+      i;
+
+  $.each(function_object, function(index, value){
+    returnVal = returnVal + '<div class="selector_wrapper"><div class="selector">' + index + '</div><span class="iconWrapper"><span class="icon"></span></span><div class="scrollToWrapper">';
+    for (i=0; i<jQuery(index, temp_dom).length; i++){
+      returnVal = returnVal + '<input type="button" class="scrollTo" value="Scroll to Element ' + (i + 1) + '" data-selector="' + index + '" data-index="' + i + '">';
+    }
+    returnVal = returnVal + '</div><div class="functionCall">' + value + '</div>' + '</div>';
+  });
+
+  return returnVal;
+}
+
+/**************************************************/
+/*          Window Integration Functions          */
+/**************************************************/
+
+/*
  * scrolls the current window to a targeted element
  */
 function scrollto_element(target, index) {
@@ -150,6 +211,31 @@ function tag_element(target, newClass) {
     chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "tagClass", target: target, newClass: newClass});
   });
 }
+
+/*
+ * find and pull a copy of all external scripts
+ */
+function get_external_script(external_url, f){
+  f = (typeof f != "undefined") ? f : false;
+  //this is a script file, have the tab request the script for us
+  chrome.tabs.getSelected(null, function(tab){
+    //sendMessage(integer tabId, any message, function responseCallback)
+    chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getScript", url: external_url}, function(response) {
+      if(response.method=="returnScript"){
+        parse_script(response.data, f);
+      }
+      else{
+        //even if it is a bad request, it has been parsed...
+        ADW_GLOBALS.num_executed += 1;
+        status_print('returned an error: '+response.data);
+      }
+    });
+  });
+}
+
+/**************************************************/
+/*                 Business Logic                 */
+/**************************************************/
 
 /*
  * function to look for function calls
@@ -315,24 +401,6 @@ function check_for_ua_inclusions(code_to_test, tracking_regex){
   return retVal;
 }
 
-function get_external_script(external_url, f){
-  f = (typeof f != "undefined") ? f : false;
-  //this is a script file, have the tab request the script for us
-  chrome.tabs.getSelected(null, function(tab){
-    //sendMessage(integer tabId, any message, function responseCallback)
-    chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getScript", url: external_url}, function(response) {
-      if(response.method=="returnScript"){
-        parse_script(response.data, f);
-      }
-      else{
-        //even if it is a bad request, it has been parsed...
-        ADW_GLOBALS.num_executed += 1;
-        status_print('returned an error: '+response.data);
-      }
-    });
-  });
-}
-
 /*
  * function to trim unwanted items out of the script (comments, regex literals, Quoted items)
  * find the tracking code
@@ -463,37 +531,6 @@ function find_scripts(temp_dom, current_url, f){
   });//end of .each
 }
 
-function build_function_calls(temp_dom, function_object){
-  var returnVal = '<h3>Function Calls</h3>',
-      i;
-
-  $.each(function_object, function(index, value){
-    returnVal = returnVal + '<div class="selector_wrapper"><div class="selector">' + index + '</div><span class="iconWrapper"><span class="icon"></span></span><div class="scrollToWrapper">';
-    for (i=0; i<jQuery(index, temp_dom).length; i++){
-      returnVal = returnVal + '<input type="button" class="scrollTo" value="Scroll to Element ' + (i + 1) + '" data-selector="' + index + '" data-index="' + i + '">';
-    }
-    returnVal = returnVal + '</div><div class="functionCall">' + value + '</div>' + '</div>';
-  });
-
-  return returnVal;
-}
-
-/*
- * onclick bind used to help with the function call prints
- */
-function toggle_inputs(target){
-  var toggleTarget = jQuery(target).parent('.iconWrapper').siblings('.scrollToWrapper');
-  jQuery(toggleTarget).stop(true, true);
-  if (jQuery(toggleTarget).hasClass('open')){
-    jQuery(toggleTarget).removeClass('open');
-    jQuery(toggleTarget).hide(400);
-  }
-  else{
-    jQuery(toggleTarget).addClass('open');
-    jQuery(toggleTarget).show(400);
-  }
-}
-
 /*
  * takes resources found earlier and parses them
  * looks for inline handlers and function calls that associate with GA calls
@@ -616,20 +653,6 @@ function eval_current_page_helper(temp_dom){
   ADW_GLOBALS.inline_calls = clean_array('', ADW_GLOBALS.inline_calls);
   if (ADW_GLOBALS.inline_calls.length != 0)status_print(['Inline Calls'].concat(ADW_GLOBALS.inline_calls));
   status_print('Testing Complete', 'warning')
-}
-
-/*
- * removes all instances of delete_value from array_to_parse
- */
-function clean_array(delete_value, array_to_parse){
-  var i;
-  for (i = 0; i < array_to_parse.length; i++) {
-    if (array_to_parse[i] == '') {
-      array_to_parse.splice(i, 1);
-      i--;
-    }
-  }
-  return array_to_parse;
 }
 
 /*
