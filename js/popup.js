@@ -216,21 +216,21 @@ function tag_element(target, newClass) {
  * find and pull a copy of all external scripts
  */
 function get_external_script(external_url, f){
-  f = (typeof f != "undefined") ? f : false;
-  //this is a script file, have the tab request the script for us
-  chrome.tabs.getSelected(null, function(tab){
-    //sendMessage(integer tabId, any message, function responseCallback)
-    chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getScript", url: external_url}, function(response) {
-      if(response.method=="returnScript"){
-        parse_script(response.data, f);
-      }
-      else{
-        //even if it is a bad request, it has been parsed...
-        ADW_GLOBALS.num_executed += 1;
-        status_print('returned an error: '+response.data);
-      }
+	f = (typeof f != "undefined") ? f : false;
+	//this is a script file, have the tab request the script for us
+	chrome.tabs.getSelected(null, function(tab){
+		//sendMessage(integer tabId, any message, function responseCallback)
+		chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getScript", url: external_url}, function(response) {
+			if(response.method=="returnScript"){
+				f(response.data);
+			}
+			else{
+				//even if it is a bad request, it has been parsed...
+				f(false);
+				//status_print('returned an error: '+response.data);
+			}
     });
-  });
+	});
 }
 
 /**************************************************/
@@ -402,136 +402,6 @@ function check_for_ua_inclusions(code_to_test, tracking_regex){
 }
 
 /*
- * function to trim unwanted items out of the script (comments, regex literals, Quoted items)
- * find the tracking code
- * takes code snippets (from internals directly or files via the get_external_script call)
- */
-function parse_script(code_to_test, f){
-  var xmlhttp, results,
-      //removed the following from the univ_regex to allow for differing arguments
-      //,\s*{?(['"])[a-zA-Z0-9]+\5\s*}?\)
-      univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*/i,
-      asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
-
-  f = (typeof f != "undefined") ? f : false;
-
-  //pull on those regex boots, its stompy time!
-  //check for the UA code, need to test both asynch and universal
-  results = code_to_test.match(asynch_regex);
-  if ($(results).length) ADW_GLOBALS.tracking_type = 'asynch';
-  else{
-    results = code_to_test.match(univ_regex);
-    if ($(results).length) ADW_GLOBALS.tracking_type = 'universal';
-  }
-  //if we had results in either, print it out here
-  if ($(results).length){
-    //both regexes match these positions - convenient
-    ADW_GLOBALS.account_num = results[4];
-    ADW_GLOBALS.caller = results[1];
-    status_print('Tracking Type: '+ADW_GLOBALS.tracking_type+"\n"+'Account Number: '+ADW_GLOBALS.account_num);
-  }
-
-  /////status_print(ADW_GLOBALS.regex_of_doom);
-  /////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
-  //strip the comments from the js.  we dont need no stinkin comments!
-  /* */
-  code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, offset, original){
-    if (typeof $1 != 'undefined') return $1;
-    if (typeof $5 != 'undefined') return $match.replace($5,'');
-    if (typeof $6 != 'undefined') return $match.replace($6,$7);
-    if (typeof $8 != 'undefined') return $match.replace($8,$9);
-    return '';
-  });
-  /* */
-  /////status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);
-
-  //add all the scripts to the scripts array, we will need ot check them for functions and binds
-  ADW_GLOBALS.scripts_content.push(code_to_test);
-
-  ADW_GLOBALS.num_executed += 1;
-  /////status_print('num executed: '+ADW_GLOBALS.num_executed+' num scripts total = '+ADW_GLOBALS.num_scripts+' the type of f is '+typeof f);
-  if (ADW_GLOBALS.num_executed == ADW_GLOBALS.num_scripts && typeof f == 'function') f.call();
-}
-
-/*
- * function to find all of the scripts on the page
- * pulls inline and internal scripts directly
- * ignores externals ... for now
- *
- * calls parse_script on each script found
- *
- * @todo parse external scripts as well
- */
-function find_scripts(temp_dom, current_url, f){
-  //status_print('beginning of the find scripts function');
-  var host, rude_host, host_regex, url_to_curl, arg, external, current_src, code_to_test, incremented;
-
-  f = (typeof f == 'function') ? f : false;
-
-  //We will need the host we are currently using
-  host = current_url.match(/^([^.]*\.)?[^.]*\.[^\/]*\//i);
-  if (host !== null){
-    host = host[0];
-  }
-  else{
-    status_print('bad host name, the current url is '+current_url);
-  }
-
-  //strip the protocal
-  rude_host = host.replace(/https?:\/\//i,'');
-  //the host is now rude... get it?  it doesnt have protocal? ... shut up, its funny
-
-  host_regex = new RegExp('(https?:)?(\/\/)?'+rude_host,'i');
-  host_regex.compile(host_regex);
-
-  ADW_GLOBALS.num_scripts = $('script',temp_dom).length;
-
-  $('script',temp_dom).each(function(){
-    arg = false;
-    external = false;
-    incremented = false;
-    //inline scripts
-    if (typeof($(this).attr('src')) === 'undefined'){
-      ////status_print('internal script '+$(this).text()+' is onsite and parsable');
-      parse_script($(this).text(), f);
-      incremented = true;
-    }
-    else if($(this).attr('src').indexOf('chrome-extension://') == -1){
-      //all of these options require ajax
-      external = true;
-
-      current_src = $(this).attr('src');
-      //internals
-      if (current_src.match(host_regex)){
-        arg = current_src;
-      }
-      else if (!current_src.match(/^(http|\/\/)/i)){
-        //doesnt have the protocal or host, append them!
-        if (current_src.match(/^\//)){
-          //this is from the root
-          arg = current_url.replace(/(https?:\/\/[^\/]*)\/.*$/, function(match, $1, offset, original){return $1})+current_src;
-        }
-        else{
-          //first, remove the friggin starting./
-          current_src = current_src.replace(/^\.\//,'');
-          //now, this is the host and the path without host
-          arg = current_url.replace(/\/[^\/]*$/,'/')+current_src;
-        }
-      }
-
-      if (arg != false){
-        //if the arg has been set, get the script contents
-        //get external script calls parse script on the returned contents
-        get_external_script(arg, f);
-        incremented = true;
-      }
-    }
-    //this keeps the count correct
-    if (!incremented) ADW_GLOBALS.num_executed += 1;
-  });//end of .each
-}
-
-/*
  * takes resources found earlier and parses them
  * looks for inline handlers and function calls that associate with GA calls
  *
@@ -659,32 +529,216 @@ function eval_current_page_helper(temp_dom){
  * Finds the current chrome tab
  * Adds http auth if it is set
  * cURLs in the info from the tab
- *
- * calls find_scripts
- *   callback of eval_current_page_helper
  */
 function eval_current_page() {
-  var tab_url, xmlhttp, temp_dom;
+  var xmlhttp, temp_dom;
+	//talk to the page
   chrome.tabs.getSelected(null, function(tab){
     chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getDocument"}, function(response) {
       if(typeof response != "undefined" && typeof response.method != "undefined" && response.method=="returnDocument"){
         temp_dom = document.createElement('div');
         $(temp_dom).attr('id', 'temp-dom-wrapper');
         temp_dom.innerHTML = response.data;
-
-        find_scripts(temp_dom, tab.url, function(){
-          //no need to evaluate further if no tracking code is found
-          if (ADW_GLOBALS.account_num != '')eval_current_page_helper(temp_dom);
-          else status_print('No tracking found', 'error');
-        });
+				jQuery(document).trigger('foundDom', [temp_dom, tab.url]);
       }
     });
   });
+}
+
+
+/****************************************/
+/*            Script Finding            */
+/****************************************/
+
+/*
+ * pulls the contents out of inline scripts, or gets the contents of script files
+ */
+function find_script(current_script, host_regex, current_url){	
+	var arg = false,
+			$current_script = jQuery(current_script),
+			current_src;
+	
+	//inline scripts
+	if (typeof $current_script.attr('src') == 'undefined'){
+		////status_print('internal script '+$(this).text()+' is onsite and parsable');
+		jQuery(document).trigger('addScript', [$current_script.text()]);
+	}
+	else if($current_script.attr('src').indexOf('chrome-extension://') == -1){
+		current_src = $current_script.attr('src');
+		//internals
+		if (current_src.match(host_regex)){
+			arg = current_src;
+		}
+		//external arg prep
+		else if (!current_src.match(/^(http|\/\/)/i)){
+			//doesnt have the protocal or host, append them!
+			if (current_src.match(/^\//)){
+				//this is from the root
+				arg = current_url.replace(/(https?:\/\/[^\/]*)\/.*$/, function(match, $1, offset, original){return $1})+current_src;
+			}
+			else{
+				//first, remove the friggin starting./
+				current_src = current_src.replace(/^\.\//,'');
+				//now, this is the host and the path without host
+				arg = current_url.replace(/\/[^\/]*$/,'/')+current_src;
+			}
+		}
+
+		if (arg != false){
+			//if the arg has been set, get the script contents
+			//get external script calls parse script on the returned contents
+			get_external_script(arg, function(script_data){jQuery(document).trigger('addScript', [script_data]);});
+		}
+		else jQuery(document).trigger('addScript', [false]);
+	}
+	//need to fire the event for the count
+	else jQuery(document).trigger('addScript', [false]);
+}
+
+function find_scripts(temp_dom, current_url){
+	//set up an event listener here
+	var num_scripts = jQuery('script', temp_dom).length,
+			found_scripts = [],
+			bad_scripts = 0,
+			host, rude_host, host_regex;
+	
+	//bind the event
+	jQuery(document).bind('addScript', function(event, script_content){
+		//if (typeof console.log == "function")console.log(script_content)
+		if (script_content != false)found_scripts.push(script_content);
+		else bad_scripts += 1;
+		
+		status_print('found_scripts.length: ' + found_scripts.length + ' bad count: ' + bad_scripts)
+		
+		if (found_scripts.length + bad_scripts == num_scripts){
+			//fire the cleaning process
+			jQuery(document).trigger('foundScripts', [found_scripts]);
+		}
+	});
+
+
+  //We will need the host we are currently using
+  host = current_url.match(/^([^.]*\.)?[^.]*\.[^\/]*\//i);
+  if (host !== null){
+    host = host[0];
+  }
+  else{
+    status_print('bad host name, the current url is '+current_url);
+  }
+
+  //strip the protocol
+  rude_host = host.replace(/https?:\/\//i,'');
+  //the host is now rude... get it?  it doesnt have protocol? ... shut up, its funny
+
+  host_regex = new RegExp('(https?:)?(\/\/)?'+rude_host,'i');
+  host_regex.compile(host_regex);
+
+  $('script',temp_dom).each(function(){
+    find_script(this, host_regex, current_url)
+  });//end of .each
+}
+
+/****************************************/
+/*           Script Cleaning            */
+/****************************************/
+
+function clean_scripts(scripts_to_clean){
+	var bad_scripts = 0,
+			num_scripts = scripts_to_clean.length,
+			current_script,
+			clean_scripts = [];
+			
+	status_print('number of scripts to clean: ' + num_scripts);
+	
+	jQuery(document).bind('cleanScript', function(event, script_content){
+		//if (typeof console.log == "function")console.log(script_content)
+		if (script_content != false)clean_scripts.push(script_content);
+		else bad_scripts += 1;
+		
+		status_print('clean_scripts.length: ' + clean_scripts.length + ' bad count: ' + bad_scripts)
+		
+		if (clean_scripts.length + bad_scripts == num_scripts){
+			jQuery(document).trigger('cleanedScripts', [clean_scripts]);
+		}
+	});
+	
+	for (current_script in scripts_to_clean){
+		clean_script(scripts_to_clean[current_script]);
+	}
+}
+
+/*
+ * function to trim unwanted items out of the script (comments, regex literals, Quoted items)
+ * find the tracking code
+ * takes code snippets (from internals directly or files via the get_external_script call)
+ */
+function clean_script(code_to_test){
+  var xmlhttp, results,
+      //removed the following from the univ_regex to allow for differing arguments
+      //,\s*{?(['"])[a-zA-Z0-9]+\5\s*}?\)
+      univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*/i,
+      asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
+
+  //pull on those regex boots, its stompy time!
+  //check for the UA code, need to test both asynch and universal
+  results = code_to_test.match(asynch_regex);
+  if ($(results).length) ADW_GLOBALS.tracking_type = 'asynch';
+  else{
+    results = code_to_test.match(univ_regex);
+    if ($(results).length) ADW_GLOBALS.tracking_type = 'universal';
+  }
+  //if we had results in either, print it out here
+  if ($(results).length){
+    //both regexes match these positions - convenient
+    ADW_GLOBALS.account_num = results[4];
+    ADW_GLOBALS.caller = results[1];
+    status_print('Tracking Type: '+ADW_GLOBALS.tracking_type+"\n"+'Account Number: '+ADW_GLOBALS.account_num);
+  }
+
+  /////status_print(ADW_GLOBALS.regex_of_doom);
+  /////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
+  //strip the comments from the js.  we dont need no stinkin comments!
+  code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, offset, original){
+    if (typeof $1 != 'undefined') return $1;
+    if (typeof $5 != 'undefined') return $match.replace($5,'');
+    if (typeof $6 != 'undefined') return $match.replace($6,$7);
+    if (typeof $8 != 'undefined') return $match.replace($8,$9);
+    return '';
+  });
+  /////status_print('after the regex of doom call.  resulting code:'+"\n"+code_to_test);
+	
+	//trigger the event
+	jQuery(document).trigger('cleanScript', [code_to_test]);
+}
+
+/****************************************/
+/*             Controller               */
+/****************************************/
+function main_handler(){
+	//event handler for getting the dom
+	jQuery(document).bind('foundDom', function(event, temp_dom, tab_url){
+		find_scripts(temp_dom, tab_url);
+	});
+	
+	//event is triggered after all scripts are found
+	jQuery(document).bind('foundScripts', function(event, scripts_found){
+		status_print('firing the clean scripts function');
+		clean_scripts(scripts_found);
+	});
+
+	//event is triggered after all scripts are cleaned
+	jQuery(document).bind('cleanedScripts', function(event, clean_scripts){
+		status_print('cleaned ' + clean_scripts.length + ' scripts');
+	});
+	
+	//call the first script parser
+	//this triggers foundDom when finished
+	eval_current_page();
 }
 
 /*
  * set things in motion on click
  */
 document.addEventListener('DOMContentLoaded', function () {
-  $('button#reload-button').click(eval_current_page);
+  $('button#reload-button').click(main_handler);
 });
