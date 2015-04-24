@@ -664,7 +664,7 @@ function clean_scripts(scripts_to_clean){
 		////status_print('clean_scripts.length: ' + clean_scripts.length + ' bad count: ' + bad_scripts)
 		
 		if (clean_scripts.length + bad_scripts == num_scripts){
-			jQuery(document).trigger('cleanedScripts', [clean_scripts]);
+			jQuery(document).trigger('cleanedScripts', [clean_scripts, scripts_to_clean]);
 		}
 	});
 	
@@ -699,7 +699,27 @@ function clean_script(code_to_test){
  * find a tracking code included in this script
  * @TODO find more than one in the same script
  */
-function find_tracking_codes(clean_script, univ_regex, asynch_regex){
+function find_tracking_from_scripts(clean_scripts){
+	var tracking_codes = [],
+			loopPlaceholder,
+			trackingObj,
+			//removed the following from the univ_regex to allow for differing arguments
+      //,\s*{?(['"])[a-zA-Z0-9]+\5\s*}?\)
+      univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*/i,
+      asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
+			
+	for (loopPlaceholder in clean_scripts){
+		trackingObj = find_tracking_from_script(clean_scripts[loopPlaceholder], univ_regex, asynch_regex);
+		if (trackingObj instanceof TrackingCode)tracking_codes.push(trackingObj);
+	}
+	
+	//no tracking test
+	if (tracking_codes.length == 0) return false;
+	
+	return tracking_codes;
+}
+ 
+function find_tracking_from_script(clean_script, univ_regex, asynch_regex){
 	var results,
 			tracking_type;
 
@@ -740,9 +760,9 @@ function main_event_handler(){
 	});
 
 	//event is triggered after all scripts are cleaned
-	jQuery(document).bind('cleanedScripts', function(event, clean_scripts){
+	jQuery(document).bind('cleanedScripts', function(event, clean_scripts, unclean_scripts){
 		////status_print('cleaned ' + clean_scripts.length + ' scripts');
-		find_tracking_inclusions(clean_scripts)
+		main_tracking_finder(clean_scripts, unclean_scripts)
 	});
 	
 	//call the first script parser
@@ -750,19 +770,10 @@ function main_event_handler(){
 	eval_current_page();
 }
 
-function find_tracking_inclusions(clean_scripts){
-	var tracking_codes = [],
-			loopPlaceholder,
-			trackingObj,
-			//removed the following from the univ_regex to allow for differing arguments
-      //,\s*{?(['"])[a-zA-Z0-9]+\5\s*}?\)
-      univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*/i,
-      asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
+function main_tracking_finder(clean_scripts, unclean_scripts){
+	var tracking_codes;
 			
-	for (loopPlaceholder in clean_scripts){
-		trackingObj = find_tracking_codes(clean_scripts[loopPlaceholder], univ_regex, asynch_regex);
-		if (trackingObj instanceof TrackingCode)tracking_codes.push(trackingObj);
-	}
+	tracking_codes = find_tracking_from_scripts(clean_scripts);
 	
 	//no tracking test
 	if (tracking_codes.length == 0){
@@ -773,6 +784,11 @@ function find_tracking_inclusions(clean_scripts){
 	//print out any codes found
 	for (loopPlaceholder = 0; loopPlaceholder < tracking_codes.length; loopPlaceholder++){
 		status_print('Tracking Type: ' + tracking_codes[loopPlaceholder].type + "\nAccount Number: " + tracking_codes[loopPlaceholder].code + "\nCalling Function: " + tracking_codes[loopPlaceholder].caller);
+	}
+	
+	//now run through each of the tracking objects in turn
+	for (loopPlaceholder = 0; loopPlaceholder < tracking_codes.length; loopPlaceholder++){
+		//run all the tracking finding here
 	}
 }
 
