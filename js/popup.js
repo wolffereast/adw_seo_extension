@@ -3,8 +3,6 @@
 var tracking_functions = [], method_calls = [], methods = [], function_calls = [], function_callers = [];
 var ADW_GLOBALS = new Object
 ADW_GLOBALS = {
-  num_scripts : 0,
-  num_executed : 0,
   scripts_content : [],
   inline_calls : [],
   onclicks : {},
@@ -18,6 +16,7 @@ ADW_GLOBALS = {
   tracking_type : false, //options: false for no tracking, asynch, or universal
   caller : '', //this will hold the object or function name - traditionally _gaq for asynch and gs for univ
 }
+
 ADW_GLOBALS.regex_of_doom = new RegExp(
   '(?:' + ADW_GLOBALS.quotations.source + '|' + //1 and 2
   ADW_GLOBALS.multiline_comment.source + '|' + //3
@@ -233,7 +232,6 @@ function get_external_script(external_url, f){
 			else{
 				//even if it is a bad request, it has been parsed...
 				f(false);
-				//status_print('returned an error: '+response.data);
 			}
     });
 	});
@@ -405,130 +403,6 @@ function check_for_ua_inclusions(code_to_test, tracking_regex){
   //check for remaining inlines here
   retVal = new UaRetvalWrapper(trimmed_code, matched_funcs);
   return retVal;
-}
-
-/*
- * takes resources found earlier and parses them
- * looks for inline handlers and function calls that associate with GA calls
- *
- * prints out selectors for elements on the page with handlers
- * @todo - generate borders around elements with handlers for visual
- * @todo - onclick scrolling to element in question
- * @todo - number of each kind of element on the page
- */
-function eval_current_page_helper(temp_dom){
-  var i, tracking_regex, temp_content, retVal, matched_functions = [],current_function, inner_current_function;
-  /////status_print('in the eval current page helper');
-
-  //split based on call type
-  if (ADW_GLOBALS.tracking_type == 'asynch'){
-    tracking_regex = new RegExp(ADW_GLOBALS.caller+/\.push\(/.source, 'g');
-  }
-  else if(ADW_GLOBALS.tracking_type == 'universal'){
-    tracking_regex = new RegExp(ADW_GLOBALS.caller+/\s*\(/.source, 'g');
-  }
-
-  //grab all the inline handlers
-  //find_inline_handlers(temp_dom);
-  //parse the scripts
-  $.each(ADW_GLOBALS.scripts_content, function(){
-    /////console.log(this.toString());
-    retVal = check_for_ua_inclusions(this.toString(), tracking_regex);
-
-    matched_functions = matched_functions.concat(retVal.foundFunctions);
-
-    //moved the find_inline_handlers function here
-    if (retVal.strippedCode.match(tracking_regex)){
-      find_inline_handlers(retVal.strippedCode, tracking_regex);
-    }
-  });
-
-  //check the dom for onclicks
-  find_onclick_handlers(temp_dom, tracking_regex)
-
-  //parse em again, but this time look for the functions
-  if (matched_functions.length){
-    //first, check if there are any functions that call the function - recursion ftw!
-    var checked = [];
-    var to_check = matched_functions;
-
-    while (to_check.length){
-      current_function = to_check.pop();
-      //add the most recent function to the checked array
-      checked.push(current_function);
-
-      ////status_print('checking ' + current_function);
-
-      temp_function_regex = new RegExp(current_function+'\\s*\\([^()]*', 'g')
-      ////status_print(temp_function_regex.source);
-      ////status_print('number of scripts: ' + ADW_GLOBALS.scripts_content.length)
-
-      $.each(ADW_GLOBALS.scripts_content, function(){
-        retVal = check_for_ua_inclusions(this.toString(), temp_function_regex);
-        while(retVal.foundFunctions.length){
-          inner_current_function= retVal.foundFunctions.pop();
-          //if it isnt in checked or to_check add it to to_check
-          if (checked.indexOf(inner_current_function) == -1 && to_check.indexOf(inner_current_function) == -1){
-            ////status_print('found ' + inner_current_function + '. adding it to to_check');
-            to_check.push(inner_current_function);
-          }
-        }
-
-        //check for inline usage
-        if (retVal.strippedCode.match(temp_function_regex)){
-          ////status_print(retVal.strippedCode)
-          find_inline_handlers(retVal.strippedCode, temp_function_regex);
-        }
-      });
-    }
-
-    matched_functions = checked;
-
-    $.each(matched_functions, function(){
-      check_for_function_inclusions(this);
-      //also need to check if the functions are in an onclick
-      temp_function_regex = new RegExp(this+'\\s*\\([^()]*', 'g')
-
-      find_onclick_handlers(temp_dom, temp_function_regex)
-    });
-  }
-  $.each(ADW_GLOBALS.selector_to_function, function(index, value){
-    if (!$(index, temp_dom).length)delete ADW_GLOBALS.selector_to_function[index]
-  });
-
-  //function calls print
-  ADW_GLOBALS.selector_to_function = clean_array('', ADW_GLOBALS.selector_to_function);
-  if (!jQuery.isEmptyObject(ADW_GLOBALS.selector_to_function)){
-    temp_content = build_function_calls(temp_dom, ADW_GLOBALS.selector_to_function);
-    status_print(temp_content, 'status');
-
-    jQuery('input.scrollTo').click(function(){
-      scrollto_element(jQuery(this).attr('data-selector'), (typeof jQuery(this).attr('data-index') != "undefined" ? jQuery(this).attr('data-index') : 0));
-    });
-    jQuery('span.icon').click(function(){toggle_inputs(this);});
-  }
-  else status_print('No function calls with tracking found', 'warning')
-
-  //onclick prints
-  if (!jQuery.isEmptyObject(ADW_GLOBALS.onclicks)){
-    tempVal = "Inline Onclick Handlers\r\n";
-    for (var key in ADW_GLOBALS.onclicks){
-      if (ADW_GLOBALS.onclicks.hasOwnProperty(key)) {
-        tempVal += key + "\r\n";
-        for (var i = 0; i < jQuery(ADW_GLOBALS.onclicks[key]).length; i++){
-          tempVal += "&nbsp;&nbsp" + ADW_GLOBALS.onclicks[key][i] + "\r\n";
-        }
-      }
-    }
-
-    status_print(tempVal);
-  }
-  else status_print('No onclick handlers with tracking found', 'warning')
-
-  //inline items print
-  ADW_GLOBALS.inline_calls = clean_array('', ADW_GLOBALS.inline_calls);
-  if (ADW_GLOBALS.inline_calls.length != 0)status_print(['Inline Calls'].concat(ADW_GLOBALS.inline_calls));
-  status_print('Testing Complete', 'warning')
 }
 
 /*
@@ -713,10 +587,7 @@ function find_tracking_from_scripts(clean_scripts){
 		if (trackingObj instanceof TrackingCode)tracking_codes.push(trackingObj);
 	}
 	
-	//no tracking test
-	if (tracking_codes.length == 0) return false;
-	
-	return tracking_codes;
+	return tracking_codes.length != 0 ? tracking_codes : false;
 }
  
 function find_tracking_from_script(clean_script, univ_regex, asynch_regex){
@@ -781,15 +652,139 @@ function main_tracking_finder(clean_scripts, unclean_scripts){
 		return false;
 	}
 	
-	//print out any codes found
+	//print out any codes found and run them throught the find_instances code
 	for (loopPlaceholder = 0; loopPlaceholder < tracking_codes.length; loopPlaceholder++){
 		status_print('Tracking Type: ' + tracking_codes[loopPlaceholder].type + "\nAccount Number: " + tracking_codes[loopPlaceholder].code + "\nCalling Function: " + tracking_codes[loopPlaceholder].caller);
+		find_instances(tracking_codes[loopPlaceholder], clean_scripts);
 	}
 	
-	//now run through each of the tracking objects in turn
-	for (loopPlaceholder = 0; loopPlaceholder < tracking_codes.length; loopPlaceholder++){
-		//run all the tracking finding here
-	}
+}
+
+/*
+ * find all tracking for an analytics instance
+ */
+function find_instances(tracking_object, clean_scripts){
+	//@TODO error testing here
+	
+	var i, tracking_regex, temp_content, retVal, matched_functions = [],current_function, inner_current_function;
+  /////status_print('in the eval current page helper');
+
+  //split based on call type
+  if (tracking_object.type == 'asynch'){
+    tracking_regex = new RegExp(ADW_GLOBALS.caller+/\.push\(/.source, 'g');
+  }
+  else if(tracking_object.type == 'universal'){
+    tracking_regex = new RegExp(ADW_GLOBALS.caller+/\s*\(/.source, 'g');
+  }
+
+  //grab all the inline handlers
+  //find_inline_handlers(temp_dom);
+  //parse the scripts
+  $.each(clean_scripts, function(){
+    /////console.log(this.toString());
+    retVal = check_for_ua_inclusions(this.toString(), tracking_regex);
+
+    matched_functions = matched_functions.concat(retVal.foundFunctions);
+
+    //moved the find_inline_handlers function here
+    if (retVal.strippedCode.match(tracking_regex)){
+      find_inline_handlers(retVal.strippedCode, tracking_regex);
+    }
+  });
+
+  //check the dom for onclicks
+  find_onclick_handlers(temp_dom, tracking_regex)
+
+  //parse em again, but this time look for the functions
+  if (matched_functions.length){
+    //first, check if there are any functions that call the function - recursion ftw!
+    var checked = [];
+    var to_check = matched_functions;
+
+    while (to_check.length){
+      current_function = to_check.pop();
+      //add the most recent function to the checked array
+      checked.push(current_function);
+
+      ////status_print('checking ' + current_function);
+
+      temp_function_regex = new RegExp(current_function+'\\s*\\([^()]*', 'g')
+      ////status_print(temp_function_regex.source);
+      ////status_print('number of scripts: ' + ADW_GLOBALS.scripts_content.length)
+
+      $.each(ADW_GLOBALS.scripts_content, function(){
+        retVal = check_for_ua_inclusions(this.toString(), temp_function_regex);
+        while(retVal.foundFunctions.length){
+          inner_current_function= retVal.foundFunctions.pop();
+          //if it isnt in checked or to_check add it to to_check
+          if (checked.indexOf(inner_current_function) == -1 && to_check.indexOf(inner_current_function) == -1){
+            ////status_print('found ' + inner_current_function + '. adding it to to_check');
+            to_check.push(inner_current_function);
+          }
+        }
+
+        //check for inline usage
+        if (retVal.strippedCode.match(temp_function_regex)){
+          ////status_print(retVal.strippedCode)
+          find_inline_handlers(retVal.strippedCode, temp_function_regex);
+        }
+      });
+    }
+
+    matched_functions = checked;
+
+    $.each(matched_functions, function(){
+      check_for_function_inclusions(this);
+      //also need to check if the functions are in an onclick
+      temp_function_regex = new RegExp(this+'\\s*\\([^()]*', 'g')
+
+      find_onclick_handlers(temp_dom, temp_function_regex)
+    });
+  }
+  $.each(ADW_GLOBALS.selector_to_function, function(index, value){
+    if (!$(index, temp_dom).length)delete ADW_GLOBALS.selector_to_function[index]
+  });
+	
+	return tracking_object;
+}
+
+/*
+ * prints information from a tracking object
+ */
+function print_results(tracking_object){
+	//function calls print
+  ADW_GLOBALS.selector_to_function = clean_array('', ADW_GLOBALS.selector_to_function);
+  if (!jQuery.isEmptyObject(ADW_GLOBALS.selector_to_function)){
+    temp_content = build_function_calls(temp_dom, ADW_GLOBALS.selector_to_function);
+    status_print(temp_content, 'status');
+
+    jQuery('input.scrollTo').click(function(){
+      scrollto_element(jQuery(this).attr('data-selector'), (typeof jQuery(this).attr('data-index') != "undefined" ? jQuery(this).attr('data-index') : 0));
+    });
+    jQuery('span.icon').click(function(){toggle_inputs(this);});
+  }
+  else status_print('No function calls with tracking found', 'warning')
+
+  //onclick prints
+  if (!jQuery.isEmptyObject(ADW_GLOBALS.onclicks)){
+    tempVal = "Inline Onclick Handlers\r\n";
+    for (var key in ADW_GLOBALS.onclicks){
+      if (ADW_GLOBALS.onclicks.hasOwnProperty(key)) {
+        tempVal += key + "\r\n";
+        for (var i = 0; i < jQuery(ADW_GLOBALS.onclicks[key]).length; i++){
+          tempVal += "&nbsp;&nbsp" + ADW_GLOBALS.onclicks[key][i] + "\r\n";
+        }
+      }
+    }
+
+    status_print(tempVal);
+  }
+  else status_print('No onclick handlers with tracking found', 'warning')
+
+  //inline items print
+  ADW_GLOBALS.inline_calls = clean_array('', ADW_GLOBALS.inline_calls);
+  if (ADW_GLOBALS.inline_calls.length != 0)status_print(['Inline Calls'].concat(ADW_GLOBALS.inline_calls));
+  status_print('Testing Complete', 'warning')
 }
 
 /*
