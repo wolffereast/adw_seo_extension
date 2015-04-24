@@ -39,6 +39,12 @@ var UaRetvalWrapper = function(strippedCode, foundFunctions){
   this.foundFunctions = foundFunctions;
 }
 
+var TrackingCode = function(code, type, caller){
+  this.code = code;
+  this.type = type;
+	this.caller = caller;
+}
+
 /**************************************************/
 /*                Helper Functions                */
 /**************************************************/
@@ -531,7 +537,7 @@ function eval_current_page_helper(temp_dom){
  * cURLs in the info from the tab
  */
 function eval_current_page() {
-  var xmlhttp, temp_dom;
+  var temp_dom;
 	//talk to the page
   chrome.tabs.getSelected(null, function(tab){
     chrome.tabs.sendMessage(tab.id, {origin: "seo_script", method: "getDocument"}, function(response) {
@@ -608,7 +614,7 @@ function find_scripts(temp_dom, current_url){
 		if (script_content != false)found_scripts.push(script_content);
 		else bad_scripts += 1;
 		
-		status_print('found_scripts.length: ' + found_scripts.length + ' bad count: ' + bad_scripts)
+		////status_print('found_scripts.length: ' + found_scripts.length + ' bad count: ' + bad_scripts)
 		
 		if (found_scripts.length + bad_scripts == num_scripts){
 			//fire the cleaning process
@@ -648,14 +654,14 @@ function clean_scripts(scripts_to_clean){
 			current_script,
 			clean_scripts = [];
 			
-	status_print('number of scripts to clean: ' + num_scripts);
+	////status_print('number of scripts to clean: ' + num_scripts);
 	
 	jQuery(document).bind('cleanScript', function(event, script_content){
 		//if (typeof console.log == "function")console.log(script_content)
 		if (script_content != false)clean_scripts.push(script_content);
 		else bad_scripts += 1;
-		
-		status_print('clean_scripts.length: ' + clean_scripts.length + ' bad count: ' + bad_scripts)
+
+		////status_print('clean_scripts.length: ' + clean_scripts.length + ' bad count: ' + bad_scripts)
 		
 		if (clean_scripts.length + bad_scripts == num_scripts){
 			jQuery(document).trigger('cleanedScripts', [clean_scripts]);
@@ -669,34 +675,9 @@ function clean_scripts(scripts_to_clean){
 
 /*
  * function to trim unwanted items out of the script (comments, regex literals, Quoted items)
- * find the tracking code
  * takes code snippets (from internals directly or files via the get_external_script call)
  */
 function clean_script(code_to_test){
-  var xmlhttp, results,
-      //removed the following from the univ_regex to allow for differing arguments
-      //,\s*{?(['"])[a-zA-Z0-9]+\5\s*}?\)
-      univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*/i,
-      asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
-
-  //pull on those regex boots, its stompy time!
-  //check for the UA code, need to test both asynch and universal
-  results = code_to_test.match(asynch_regex);
-  if ($(results).length) ADW_GLOBALS.tracking_type = 'asynch';
-  else{
-    results = code_to_test.match(univ_regex);
-    if ($(results).length) ADW_GLOBALS.tracking_type = 'universal';
-  }
-  //if we had results in either, print it out here
-  if ($(results).length){
-    //both regexes match these positions - convenient
-    ADW_GLOBALS.account_num = results[4];
-    ADW_GLOBALS.caller = results[1];
-    status_print('Tracking Type: '+ADW_GLOBALS.tracking_type+"\n"+'Account Number: '+ADW_GLOBALS.account_num);
-  }
-
-  /////status_print(ADW_GLOBALS.regex_of_doom);
-  /////status_print('before the regex of doom call.  calling it on '+"\n"+code_to_test)
   //strip the comments from the js.  we dont need no stinkin comments!
   code_to_test = code_to_test.replace(ADW_GLOBALS.regex_of_doom, function($match, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, offset, original){
     if (typeof $1 != 'undefined') return $1;
@@ -712,9 +693,41 @@ function clean_script(code_to_test){
 }
 
 /****************************************/
-/*             Controller               */
+/*            find tracking             */
 /****************************************/
-function main_handler(){
+/*
+ * find a tracking code included in this script
+ * @TODO find more than one in the same script
+ */
+function find_tracking_codes(clean_script, univ_regex, asynch_regex){
+	var results,
+			tracking_type;
+
+  //pull on those regex boots, its stompy time!
+  //check for the UA code, need to test both asynch and universal
+  results = clean_script.match(asynch_regex);
+  if ($(results).length) tracking_type = 'asynch';
+  else{
+    results = clean_script.match(univ_regex);
+    if ($(results).length) tracking_type = 'universal';
+  }
+  //if we had results in either, print it out here
+  if ($(results).length){
+		//both regexes match these positions - convenient
+    // UA = 4, caller = 1
+		return new TrackingCode(results[4], tracking_type, results[1]);
+  }
+}
+
+/****************************************/
+/*             Controllers              */
+/****************************************/
+
+/*
+ * we need a handler to control a bunch of events
+ * this way we can grab all the scripts and clean them without worrying about timing
+ */
+function main_event_handler(){
 	//event handler for getting the dom
 	jQuery(document).bind('foundDom', function(event, temp_dom, tab_url){
 		find_scripts(temp_dom, tab_url);
@@ -722,13 +735,14 @@ function main_handler(){
 	
 	//event is triggered after all scripts are found
 	jQuery(document).bind('foundScripts', function(event, scripts_found){
-		status_print('firing the clean scripts function');
+		////status_print('firing the clean scripts function');
 		clean_scripts(scripts_found);
 	});
 
 	//event is triggered after all scripts are cleaned
 	jQuery(document).bind('cleanedScripts', function(event, clean_scripts){
-		status_print('cleaned ' + clean_scripts.length + ' scripts');
+		////status_print('cleaned ' + clean_scripts.length + ' scripts');
+		find_tracking_inclusions(clean_scripts)
 	});
 	
 	//call the first script parser
@@ -736,9 +750,35 @@ function main_handler(){
 	eval_current_page();
 }
 
+function find_tracking_inclusions(clean_scripts){
+	var tracking_codes = [],
+			loopPlaceholder,
+			trackingObj,
+			//removed the following from the univ_regex to allow for differing arguments
+      //,\s*{?(['"])[a-zA-Z0-9]+\5\s*}?\)
+      univ_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\s*\((['"])create\2\s*,\s*(['"])(UA-[0-9]+-[0-9])+\3\s*/i,
+      asynch_regex = /([$_a-zA-Z][$_a-zA-Z0-9]*)\.push\(\[(["'])_setAccount\2\s*,\s*(['"])(.*?)\3/i;
+			
+	for (loopPlaceholder in clean_scripts){
+		trackingObj = find_tracking_codes(clean_scripts[loopPlaceholder], univ_regex, asynch_regex);
+		if (trackingObj instanceof TrackingCode)tracking_codes.push(trackingObj);
+	}
+	
+	//no tracking test
+	if (tracking_codes.length == 0){
+		status_print("No tracking found");
+		return false;
+	}
+	
+	//print out any codes found
+	for (loopPlaceholder = 0; loopPlaceholder < tracking_codes.length; loopPlaceholder++){
+		status_print('Tracking Type: ' + tracking_codes[loopPlaceholder].type + "\nAccount Number: " + tracking_codes[loopPlaceholder].code + "\nCalling Function: " + tracking_codes[loopPlaceholder].caller);
+	}
+}
+
 /*
  * set things in motion on click
  */
 document.addEventListener('DOMContentLoaded', function () {
-  $('button#reload-button').click(main_handler);
+  $('button#reload-button').click(main_event_handler);
 });
